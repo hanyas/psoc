@@ -16,8 +16,7 @@ setup(
         "matplotlib",
         "optax",
         "flax",
-        "distrax",
-        "clu"
+        "distrax"
     ],
     packages=["psoc"],
     zip_safe=False,
