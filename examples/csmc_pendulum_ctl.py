@@ -2,18 +2,15 @@ from typing import Dict
 from functools import partial
 
 import jax
-
 from jax import random as jr
 from jax import numpy as jnp
 
 import numpy as onp
 
-from flax import struct
 from flax import linen as nn
-from flax.training import train_state
+from flax.training.train_state import TrainState
 
 import optax
-from clu import metrics
 
 from psoc.algorithms import smc, csmc
 from psoc.environments import pendulum_env as pendulum
@@ -41,8 +38,14 @@ def expectation(
         key, reference = carry
         key, sub_key = jr.split(key, 2)
         sample = csmc(
-            sub_key, nb_steps, nb_particles, 1,
-            reference, prior, closedloop, log_obsrv,
+            sub_key,
+            nb_steps,
+            nb_particles,
+            1,
+            reference,
+            prior,
+            closedloop,
+            log_obsrv,
         )[-1]
         return (key, sample), sample
 
@@ -57,32 +60,25 @@ def lower_bound(
     params: Dict,
     eta: float,
 ):
-    _, closedloop, log_obsrv = \
-        pendulum.create_env(params, eta)
-
-    lls = pendulum.log_complete_likelihood(
-        states, next_states, closedloop, log_obsrv
-    )
+    _, closedloop, log_obsrv = pendulum.create_env(params, eta)
+    lls = pendulum.log_complete_likelihood(states, next_states, closedloop, log_obsrv)
     return -jnp.sum(lls)
 
 
 @jax.jit
 def maximization(
-    opt_state: train_state.TrainState,
+    opt_state: TrainState,
     states: jnp.ndarray,
     next_states: jnp.ndarray,
     eta: float,
 ):
     def loss_fn(params):
-        loss = lower_bound(
-            states, next_states,
-            params, eta
-        )
+        loss = lower_bound(states, next_states, params, eta)
         return loss
 
-    grad_fn = jax.grad(loss_fn)
-    grads = grad_fn(opt_state.params)
-    return opt_state.apply_gradients(grads=grads)
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(opt_state.params)
+    return opt_state.apply_gradients(grads=grads), loss
 
 
 def create_pairs(samples: jnp.ndarray):
@@ -98,8 +94,7 @@ def compute_cost(
     params: Dict,
     eta: float
 ):
-    _, _, cost = \
-        pendulum.create_env(params, eta)
+    _, _, cost = pendulum.create_env(params, eta)
     _, next_states = create_pairs(samples)
     return jnp.mean(jax.vmap(cost)(next_states))
 
@@ -124,38 +119,18 @@ def batcher(
         yield states[idx], next_states[idx]
 
 
-@jax.jit
-def compute_metrics(
-    opt_state: train_state.TrainState,
-    samples: jnp.ndarray,
-    eta: float
-):
-    loss = compute_cost(samples, opt_state.params, eta)
-    metric_updates = opt_state.metrics.single_from_model_output(loss=loss)
-    metrics = opt_state.metrics.merge(metric_updates)
-    opt_state = opt_state.replace(metrics=metrics)
-    return opt_state
-
-
-@struct.dataclass
-class Metrics(metrics.Collection):
-    loss: metrics.Average.from_output("loss")
-
-
-class TrainState(train_state.TrainState):
-    metrics: Metrics
-
-
 def create_train_state(
-    key: jax.Array,
-    module: nn.Module,
-    learning_rate: float
+        key: jax.Array,
+        module: nn.Module,
+        learning_rate: float
 ):
-    params = module.init(key, jnp.zeros((2,)))["params"]
+    init_data = jnp.zeros((2,))
+    params = module.init(key, init_data)["params"]
     tx = optax.adam(learning_rate)
     return TrainState.create(
-        apply_fn=module.apply, params=params,
-        tx=tx, metrics=Metrics.empty()
+        apply_fn=module.apply,
+        params=params,
+        tx=tx
     )
 
 
@@ -180,8 +155,13 @@ prior, closedloop, cost = \
 
 key, sub_key = jr.split(key, 2)
 samples, weights = smc(
-    sub_key, nb_steps, nb_particles, nb_samples,
-    prior, closedloop, cost,
+    sub_key,
+    nb_steps,
+    nb_particles,
+    nb_samples,
+    prior,
+    closedloop,
+    cost,
 )
 
 key, sub_key = jr.split(key, 2)
@@ -192,8 +172,6 @@ reference = samples[idx, :, :]
 #     plt.plot(samples[n, :, 0])
 # plt.show()
 
-metrics_history = {'loss': []}
-
 for i in range(nb_iter):
     # update temperature
     eta = jnp.exp(log_eta[i])
@@ -202,27 +180,24 @@ for i in range(nb_iter):
 
     # expectation step
     samples = expectation(
-        estep_key, nb_samples, reference, opt_state.params, eta
+        estep_key,
+        nb_samples,
+        reference,
+        opt_state.params,
+        float(eta)
     )
 
     # maximization step
+    loss = 0.0
     batches = batcher(mstep_key, samples, 64)
     for batch in batches:
         states, next_states = batch
-        opt_state = maximization(
-            opt_state, states, next_states, eta
-        )
-
-    # compute lower bound
-    opt_state = compute_metrics(opt_state, samples, eta)
-
-    for metric, value in opt_state.metrics.compute().items():
-        metrics_history[f'{metric}'].append(value)
-    opt_state = opt_state.replace(metrics=opt_state.metrics.empty())
+        opt_state, batch_loss = maximization(opt_state, states, next_states, eta)
+        loss += batch_loss
 
     print(
-        f"iter: {i},"
-        f" loss: {metrics_history['loss'][-1]},"
+        f" iter: {i},"
+        f" loss: {loss},"
         f" log_std: {opt_state.params['log_std']}"
     )
 
@@ -242,5 +217,8 @@ prior, closedloop, _ = \
     pendulum.create_env(opt_state.params, final_eta)
 states = pendulum.simulate(prior, closedloop, nb_steps)
 
+plt.figure()
 plt.plot(states)
+plt.legend([r"$\theta$", r"$d\theta/dt$", "u"])
+plt.title("Sample closed loop trajectory")
 plt.show()
