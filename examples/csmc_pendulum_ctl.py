@@ -66,7 +66,7 @@ def lower_bound(
     return -jnp.sum(lls)
 
 
-# @jax.jit
+@jax.jit
 def maximization(
     opt_state: train_state.TrainState,
     states: jnp.ndarray,
@@ -220,7 +220,11 @@ for i in range(nb_iter):
         metrics_history[f'{metric}'].append(value)
     opt_state = opt_state.replace(metrics=opt_state.metrics.empty())
 
-    print(f"iter: {i}, loss: {metrics_history['loss'][-1]}")
+    print(
+        f"iter: {i},"
+        f" loss: {metrics_history['loss'][-1]},"
+        f" log_std: {opt_state.params['log_std']}"
+    )
 
     # choose new reference
     reference = samples[-1]
