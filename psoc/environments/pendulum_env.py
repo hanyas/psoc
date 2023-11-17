@@ -13,6 +13,8 @@ from psoc.abstract import PolicyNetwork
 from psoc.abstract import StochasticPolicy
 from psoc.abstract import ClosedLoop
 
+from psoc.utils import Tanh
+
 jax.config.update("jax_enable_x64", True)
 
 
@@ -62,14 +64,16 @@ network = PolicyNetwork(
     dim=1,
     layer_size=[256, 256, 1],
     init_log_std=jnp.log(1.65 * jnp.ones((1,))),
-    shift=0.0,
-    scale=5.0
 )
 
+bijector = distrax.Chain([
+    distrax.ScalarAffine(0., 5.),
+    Tanh()
+])
 
 def create_env(params, eta):
     policy = StochasticPolicy(
-        network, params
+        network, params, bijector
     )
 
     closedloop = ClosedLoop(

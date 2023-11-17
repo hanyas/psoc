@@ -8,15 +8,11 @@ from jax import numpy as jnp
 import distrax
 from flax import linen as nn
 
-from psoc.utils import Tanh
-
 
 class PolicyNetwork(nn.Module):
     dim: int
     layer_size: Sequence[int]
     init_log_std: jnp.ndarray
-    shift: float
-    scale: float
 
     @staticmethod
     @partial(jnp.vectorize, signature='(k)->(h)')
@@ -34,40 +30,45 @@ class PolicyNetwork(nn.Module):
         log_std = \
             self.param('log_std', lambda rng, shape: self.init_log_std, 1)
 
-        bijectors = [
-            distrax.ScalarAffine(self.shift, self.scale),
-            Tanh()
-        ]
-        bijector_chain = distrax.Chain(bijectors)
-
-        raw_dist = distrax.MultivariateNormalDiag(
-            loc=u, scale_diag=jnp.exp(log_std)
-        )
-        squashed_dist = distrax.Transformed(
-            distribution=raw_dist,
-            bijector=distrax.Block(bijector_chain, ndims=self.dim)
-        )
-        return squashed_dist, bijector_chain.forward(u)
+        return u
 
 
 class StochasticPolicy(NamedTuple):
     network: PolicyNetwork
     params: Dict
+    bijector: distrax.Chain
 
     @property
     def dim(self):
         return self.network.dim
 
     def mean(self, x):
-        _, u = self.network.apply({'params': self.params}, x)
-        return u
+        u = self.network.apply({'params': self.params}, x)
+        return self.bijector.forward(u)
+
+    def squash_dist(self, x):
+        u = self.network.apply({'params': self.params}, x)
+        log_std = self.params['log_std']
+
+        raw_dist = distrax.MultivariateNormalDiag(
+            loc=u, scale_diag=jnp.exp(log_std)
+        )
+        squashed_dist = distrax.Transformed(
+            distribution=raw_dist,
+            bijector=distrax.Block(self.bijector, ndims=self.dim)
+        )
+        return squashed_dist
+
+    def explicit_sample(self, x, r):
+        u = self.network.apply({'params': self.params}, x)
+        return self.bijector.forward(u + jnp.exp(self.params['log_std']) * r)
 
     def sample(self, key, x):
-        dist, _ = self.network.apply({'params': self.params}, x)
+        dist = self.squash_dist(x)
         return dist.sample(seed=key)
 
     def logpdf(self, x, u):
-        dist, _ = self.network.apply({'params': self.params}, x)
+        dist = self.squash_dist(x)
         return dist.log_prob(u)
 
 
@@ -80,6 +81,9 @@ class StochasticDynamics(NamedTuple):
     def mean(self, x, u):
         dx = self.ode(x, u)
         return x + self.step * dx
+
+    def explicit_sample(self, x, u, q):
+        return self.mean(x, u) + jnp.exp(self.log_std) * q
 
     def sample(self, key, x, u):
         dist = distrax.MultivariateNormalDiag(
@@ -119,6 +123,14 @@ class ClosedLoop(NamedTuple):
         u_key, x_key = jr.split(key, 2)
         u = self.policy.sample(u_key, x)
         xn = self.dynamics.sample(x_key, x, u)
+        return jnp.column_stack((xn, u))
+
+    def explicit_sample(self, z, v):
+        q = jnp.atleast_1d(v[..., :self.xdim])
+        r = jnp.atleast_1d(v[..., -self.udim:])
+        x = jnp.atleast_1d(z[..., :self.xdim])
+        u = self.policy.explicit_sample(x, r)
+        xn = self.dynamics.explicit_sample(x, u, q)
         return jnp.column_stack((xn, u))
 
     def logpdf(self, z, zn):
