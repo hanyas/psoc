@@ -23,9 +23,10 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-@partial(jax.jit, static_argnums=(1, 2))
+@partial(jax.jit, static_argnums=(1, 2, 3))
 def expectation(
     key: jax.Array,
+    nb_steps: int,
     nb_particles: int,
     nb_samples: int,
     reference: jnp.ndarray,
@@ -42,12 +43,11 @@ def expectation(
             sub_key,
             nb_steps,
             nb_particles,
-            1,
             reference,
             prior,
             closedloop,
             log_obsrv,
-        )[-1]
+        )
         return (key, sample), sample
 
     _, samples = \
@@ -142,9 +142,7 @@ nb_particles = 512
 nb_samples = 20
 
 nb_iter = 25
-init_eta = 0.5
-final_eta = 0.5
-log_eta = jnp.linspace(jnp.log(init_eta), jnp.log(final_eta), nb_iter)
+eta = 1.0
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(sub_key, pendulum.network, 5e-4)
@@ -152,46 +150,38 @@ opt_state = create_train_state(sub_key, pendulum.network, 5e-4)
 start = clock.time()
 
 prior, closedloop, cost = \
-    pendulum.create_env(opt_state.params, init_eta)
+    pendulum.create_env(opt_state.params, eta)
 
 key, sub_key = jr.split(key, 2)
-samples, weights = smc(
+reference = smc(
     sub_key,
     nb_steps,
     nb_particles,
-    nb_samples,
     prior,
     closedloop,
     cost,
 )
 
-key, sub_key = jr.split(key, 2)
-idx = jr.choice(sub_key, a=nb_samples, p=weights)
-reference = samples[idx, :, :]
-
-# for n in range(nb_samples):
-#     plt.plot(samples[n, :, :])
+# plt.plot(reference)
 # plt.show()
 
 for i in range(nb_iter):
-    # update temperature
-    eta = jnp.exp(log_eta[i])
-
-    key, estep_key, mstep_key, ref_key = jr.split(key, 4)
+    key, estep_key, mstep_key = jr.split(key, 3)
 
     # expectation step
     samples = expectation(
         estep_key,
+        nb_steps,
         nb_particles,
         nb_samples,
         reference,
         opt_state.params,
-        float(eta)
+        eta
     )
 
     # maximization step
     loss = 0.0
-    batches = batcher(mstep_key, samples, 64)
+    batches = batcher(mstep_key, samples, 32)
     for batch in batches:
         states, next_states = batch
         opt_state, batch_loss = \
@@ -217,7 +207,7 @@ print("Compilation + Execution Time:", end - start)
 # plt.show()
 
 prior, closedloop, _ = \
-    pendulum.create_env(opt_state.params, final_eta)
+    pendulum.create_env(opt_state.params, eta)
 states = pendulum.simulate(prior, closedloop, nb_steps)
 
 plt.figure()

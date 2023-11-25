@@ -176,7 +176,7 @@ for i in range(nb_iter):
         nb_samples,
         reference,
         opt_state.params,
-        float(eta)
+        eta
     )
 
     # maximization step
