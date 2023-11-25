@@ -50,7 +50,7 @@ class StochasticPolicy(NamedTuple):
         )
         squashed_dist = distrax.Transformed(
             distribution=raw_dist,
-            bijector=distrax.Block(self.bijector, ndims=self.dim)
+            bijector=distrax.Block(self.bijector, ndims=1)
         )
         return squashed_dist
 
@@ -69,9 +69,27 @@ class StochasticDynamics(NamedTuple):
     step: float
     log_std: jnp.ndarray
 
+    @staticmethod
+    def runge_kutta(
+        x: jnp.ndarray,
+        u: jnp.ndarray,
+        ode: Callable,
+        step: float,
+    ):
+        k1 = ode(x, u)
+        k2 = ode(x + 0.5 * step * k1, u)
+        k3 = ode(x + 0.5 * step * k2, u)
+        k4 = ode(x + step * k3, u)
+        return x + step / 6.0 * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+
+    @staticmethod
+    def euler(x, u, ode, step):
+        dx = ode(x, u)
+        return x + step * dx
+
     def mean(self, x, u):
-        dx = self.ode(x, u)
-        return x + self.step * dx
+        return self.euler(x, u, self.ode, self.step)
+        # return self.runge_kutta(x, u, self.ode, self.step)
 
     def sample(self, key, x, u):
         dist = distrax.MultivariateNormalDiag(
