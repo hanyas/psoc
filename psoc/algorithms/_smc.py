@@ -84,7 +84,6 @@ def smc(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
-    nb_samples: int,
     prior: distrax.Distribution,
     transition_model: ClosedLoop,
     log_observation: Callable
@@ -132,26 +131,12 @@ def smc(
     filter_particles = jnp.insert(filter_particles, nb_steps, last_particles, 0)
     filter_weights = jnp.insert(filter_weights, nb_steps, last_weights, 0)
 
-    def body(carry, args):
-        key = carry
-        key, sub_key = jr.split(key, 2)
+    key, sub_key = jr.split(key, 2)
+    smoother_sample, _ = _backward_sampling(
+        sub_key,
+        filter_particles,
+        filter_weights,
+        transition_model
+    )
 
-        smoother_path_sample, sample_weight = _backward_sampling(
-            sub_key,
-            filter_particles,
-            filter_weights,
-            transition_model
-        )
-
-        # smoother_path_sample, sample_weight = _backward_tracing(
-        #     sub_key,
-        #     filter_particles,
-        #     filter_ancestors,
-        #     filter_weights
-        # )
-        return key, (smoother_path_sample, sample_weight)
-
-    _, (smoother_samples, smoother_weights) = \
-        jl.scan(body, key, (), length=nb_samples)
-
-    return smoother_samples, smoother_weights
+    return smoother_sample

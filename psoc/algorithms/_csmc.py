@@ -82,7 +82,6 @@ def csmc(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
-    nb_samples: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
     transition_model: ClosedLoop,
@@ -135,26 +134,12 @@ def csmc(
     filter_particles = jnp.insert(filter_particles, nb_steps, last_particles, 0)
     filter_weights = jnp.insert(filter_weights, nb_steps, last_weights, 0)
 
-    def body(carry, args):
-        key = carry
-        key, sub_key = jr.split(key, 2)
+    key, sub_key = jr.split(key, 2)
+    sample = _backward_sampling(
+        sub_key,
+        filter_particles,
+        filter_weights,
+        transition_model
+    )
 
-        sample = _backward_sampling(
-            sub_key,
-            filter_particles,
-            filter_weights,
-            transition_model
-        )
-
-        # sample = _backward_tracing(
-        #     sub_key,
-        #     filter_particles,
-        #     filter_ancestors,
-        #     filter_weights,
-        # )
-        return key, sample
-
-    key, ref_key = jr.split(key, 2)
-    _, samples = jl.scan(body, key, (), length=nb_samples)
-
-    return samples
+    return sample
