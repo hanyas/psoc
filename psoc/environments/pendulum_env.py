@@ -16,7 +16,7 @@ from psoc.abstract import ClosedLoop
 
 from psoc.utils import Tanh
 
-# jax.config.update("jax_enable_x64", True)
+jax.config.update("jax_enable_x64", True)
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
@@ -113,7 +113,7 @@ def simulate(
     return states
 
 
-# @partial(jax.vmap, in_axes=(0, 0, None, None))
+@partial(jax.vmap, in_axes=(0, 0, None, None))
 def log_complete_likelihood(
     state: jnp.ndarray,
     next_state: jnp.ndarray,
