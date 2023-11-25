@@ -42,7 +42,7 @@ def ode(
 @partial(jnp.vectorize, signature='(k),()->()')
 def cost(state, eta):
     goal = jnp.array([0.0, 0.0, 0.0])
-    weights = jnp.array([1e1, 1e0, 1e0])
+    weights = jnp.array([1e2, 1e0, 1e-1])
     cost = - 0.5 * jnp.dot(state - goal, weights * (state - goal))
     return eta * cost
 

@@ -23,9 +23,10 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-@partial(jax.jit, static_argnums=(1, 2))
+@partial(jax.jit, static_argnums=(1, 2, 3))
 def expectation(
     key: jax.Array,
+    nb_steps: int,
     nb_particles: int,
     nb_samples: int,
     reference: jnp.ndarray,
@@ -42,12 +43,11 @@ def expectation(
             sub_key,
             nb_steps,
             nb_particles,
-            1,
             reference,
             prior,
             closedloop,
             log_obsrv,
-        )[-1]
+        )
         return (key, sample), sample
 
     _, samples = \
@@ -135,17 +135,17 @@ def create_train_state(
     )
 
 
-key = jr.PRNGKey(123)
+key = jr.PRNGKey(83453)
 
 nb_steps = 51
 nb_particles = 512
 nb_samples = 50
 
-nb_iter = 15
+nb_iter = 50
 eta = 0.1
 
 key, sub_key = jr.split(key, 2)
-opt_state = create_train_state(sub_key, linear.network, 1e-3)
+opt_state = create_train_state(sub_key, linear.network, 5e-3)
 
 start = clock.time()
 
@@ -153,29 +153,25 @@ prior, closedloop, cost = \
     linear.create_env(opt_state.params, eta)
 
 key, sub_key = jr.split(key, 2)
-samples, weights = smc(
+reference = smc(
     sub_key,
     nb_steps,
-    nb_particles,
-    nb_samples,
+    int(nb_particles * 10),
     prior,
     closedloop,
     cost,
 )
 
-key, sub_key = jr.split(key, 2)
-idx = jr.choice(sub_key, a=nb_samples, p=weights)
-reference = samples[idx, :, :]
-
-# plt.plot(reference)
-# plt.show()
+plt.plot(reference)
+plt.show()
 
 for i in range(nb_iter):
-    key, estep_key, mstep_key, ref_key = jr.split(key, 4)
+    key, estep_key, mstep_key = jr.split(key, 3)
 
     # expectation step
     samples = expectation(
         estep_key,
+        nb_steps,
         nb_particles,
         nb_samples,
         reference,
