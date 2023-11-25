@@ -63,17 +63,18 @@ dynamics = StochasticDynamics(
 network = PolicyNetwork(
     dim=1,
     layer_size=[256, 256, 1],
-    init_log_std=jnp.log(1.65 * jnp.ones((1,))),
+    init_log_std=jnp.log(1.5 * jnp.ones((1,))),
 )
 
 bijector = distrax.Chain([
-    distrax.ScalarAffine(0., 5.),
+    distrax.ScalarAffine(0.0, 5.0),
     Tanh()
 ])
 
+
 def create_env(params, eta):
     policy = StochasticPolicy(
-        network, params, bijector
+        network, bijector, params
     )
 
     closedloop = ClosedLoop(
@@ -102,6 +103,7 @@ def simulate(
     return states
 
 
+@partial(jax.vmap, in_axes=(0, 0, None, None))
 def log_complete_likelihood(
     state: jnp.ndarray,
     next_state: jnp.ndarray,
