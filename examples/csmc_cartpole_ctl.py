@@ -127,7 +127,7 @@ def create_train_state(
 ):
     init_data = jnp.zeros((4,))
     params = module.init(key, init_data)["params"]
-    tx = optax.adamw(learning_rate, weight_decay=1e-4)
+    tx = optax.adam(learning_rate)
     return TrainState.create(
         apply_fn=module.apply,
         params=params,
@@ -135,14 +135,14 @@ def create_train_state(
     )
 
 
-key = jr.PRNGKey(23123)
+key = jr.PRNGKey(7345)
 
 nb_steps = 101
 nb_particles = 512
-nb_samples = 20
+nb_samples = 50
 
 nb_iter = 25
-eta = 0.5
+eta = 0.1
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(sub_key, cartpole.network, 5e-4)
@@ -156,14 +156,14 @@ key, sub_key = jr.split(key, 2)
 reference = smc(
     sub_key,
     nb_steps,
-    nb_particles,
+    int(nb_particles * 10),
     prior,
     closedloop,
     cost,
 )
 
-# plt.plot(reference)
-# plt.show()
+plt.plot(reference)
+plt.show()
 
 for i in range(nb_iter):
     key, estep_key, mstep_key = jr.split(key, 3)
@@ -177,11 +177,11 @@ for i in range(nb_iter):
         reference,
         opt_state.params,
         eta
-    )
+    )[10:]
 
     # maximization step
     loss = 0.0
-    batches = batcher(mstep_key, samples, 32)
+    batches = batcher(mstep_key, samples, 64)
     for batch in batches:
         states, next_states = batch
         opt_state, batch_loss = \
@@ -198,9 +198,9 @@ for i in range(nb_iter):
     reference = samples[-1]
 
 
-# jax.block_until_ready(opt_state)
-# end = clock.time()
-# print("Compilation + Execution Time:", end - start)
+jax.block_until_ready(opt_state)
+end = clock.time()
+print("Compilation + Execution Time:", end - start)
 
 # for n in range(nb_particles):
 #     plt.plot(samples[n, :, :])

@@ -74,22 +74,22 @@ dynamics = StochasticDynamics(
     dim=4,
     ode=ode,
     step=0.05,
-    log_std=jnp.log(1e-2 * jnp.ones((4,)))
+    log_std=jnp.log(jnp.array([1e-4, 1e-4, 1e-2, 1e-2]))
 )
 
 
 @partial(jnp.vectorize, signature='(k)->(h)')
 def polar(x):
-    cos_q, sin_q = jnp.sin(x[1]), jnp.cos(x[1])
-    return jnp.hstack([x[0], cos_q, sin_q, x[2], x[3]])
+    sin_q, cos_q = jnp.sin(x[1]), jnp.cos(x[1])
+    return jnp.hstack([x[0], sin_q, cos_q, x[2], x[3]])
 
 
 network = PolicyNetwork(
     dim=1,
-    layer_size=[256, 256],
+    layer_size=[512, 512],
     transform=polar,
     activation=nn.relu,
-    init_log_std=jnp.log(2.5 * jnp.ones((1,))),
+    init_log_std=jnp.log(1.0 * jnp.ones((1,))),
 )
 
 bijector = distrax.Chain([
