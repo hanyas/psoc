@@ -1,5 +1,4 @@
 from typing import Dict, Callable, NamedTuple, Sequence
-from functools import partial
 
 import jax
 from jax import random as jr
@@ -12,29 +11,16 @@ from flax import linen as nn
 class PolicyNetwork(nn.Module):
     dim: int
     layer_size: Sequence[int]
+    transform: Callable
+    activation: Callable
     init_log_std: jnp.ndarray
-
-    @staticmethod
-    @partial(jnp.vectorize, signature='(k)->(h)')
-    def polar(x):
-        cos_q, sin_q = jnp.sin(x[0]), jnp.cos(x[0])
-        return jnp.hstack([cos_q, sin_q, x[1]])
-
-        # cos_q, sin_q = jnp.sin(x[1]), jnp.cos(x[1])
-        # return jnp.hstack([x[0], cos_q, sin_q, x[2], x[3]])
-
-        # cos_q, sin_q = jnp.sin(x[0]), jnp.cos(x[0])
-        # cos_p, sin_p = jnp.sin(x[1]), jnp.cos(x[1])
-        # return jnp.hstack([cos_q, sin_q, cos_p, sin_p, x[2], x[3]])
 
     @nn.compact
     def __call__(self, x):
-        y = self.polar(x)
-        y = nn.relu(nn.Dense(self.layer_size[0])(y))
-        y = nn.relu(nn.Dense(self.layer_size[1])(y))
-        u = nn.Dense(self.layer_size[2])(y)
-
-        # u = nn.Dense(self.dim)(x)
+        y = self.transform(x)
+        for _layer_size in self.layer_size:
+            y = self.activation(nn.Dense(_layer_size)(y))
+        u = nn.Dense(self.dim)(y)
 
         log_std = \
             self.param('log_std', lambda rng, shape: self.init_log_std, 1)
