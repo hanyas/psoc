@@ -20,12 +20,21 @@ class PolicyNetwork(nn.Module):
         cos_q, sin_q = jnp.sin(x[0]), jnp.cos(x[0])
         return jnp.hstack([cos_q, sin_q, x[1]])
 
+        # cos_q, sin_q = jnp.sin(x[1]), jnp.cos(x[1])
+        # return jnp.hstack([x[0], cos_q, sin_q, x[2], x[3]])
+
+        # cos_q, sin_q = jnp.sin(x[0]), jnp.cos(x[0])
+        # cos_p, sin_p = jnp.sin(x[1]), jnp.cos(x[1])
+        # return jnp.hstack([cos_q, sin_q, cos_p, sin_p, x[2], x[3]])
+
     @nn.compact
     def __call__(self, x):
         y = self.polar(x)
         y = nn.relu(nn.Dense(self.layer_size[0])(y))
         y = nn.relu(nn.Dense(self.layer_size[1])(y))
         u = nn.Dense(self.layer_size[2])(y)
+
+        # u = nn.Dense(self.dim)(x)
 
         log_std = \
             self.param('log_std', lambda rng, shape: self.init_log_std, 1)
@@ -35,8 +44,8 @@ class PolicyNetwork(nn.Module):
 
 class StochasticPolicy(NamedTuple):
     network: PolicyNetwork
-    params: Dict
     bijector: distrax.Chain
+    params: Dict
 
     @property
     def dim(self):
@@ -46,7 +55,7 @@ class StochasticPolicy(NamedTuple):
         u = self.network.apply({'params': self.params}, x)
         return self.bijector.forward(u)
 
-    def squash_dist(self, x):
+    def distribution(self, x):
         u = self.network.apply({'params': self.params}, x)
         log_std = self.params['log_std']
 
@@ -59,16 +68,12 @@ class StochasticPolicy(NamedTuple):
         )
         return squashed_dist
 
-    def explicit_sample(self, x, r):
-        u = self.network.apply({'params': self.params}, x)
-        return self.bijector.forward(u + jnp.exp(self.params['log_std']) * r)
-
     def sample(self, key, x):
-        dist = self.squash_dist(x)
+        dist = self.distribution(x)
         return dist.sample(seed=key)
 
     def logpdf(self, x, u):
-        dist = self.squash_dist(x)
+        dist = self.distribution(x)
         return dist.log_prob(u)
 
 
@@ -81,9 +86,6 @@ class StochasticDynamics(NamedTuple):
     def mean(self, x, u):
         dx = self.ode(x, u)
         return x + self.step * dx
-
-    def explicit_sample(self, x, u, q):
-        return self.mean(x, u) + jnp.exp(self.log_std) * q
 
     def sample(self, key, x, u):
         dist = distrax.MultivariateNormalDiag(
@@ -113,31 +115,31 @@ class ClosedLoop(NamedTuple):
         return self.policy.dim
 
     def mean(self, z):
-        x = jnp.atleast_1d(z[..., :self.xdim])
-        u = self.policy.mean(x)
+        x = jnp.atleast_1d(z[:self.xdim])
+        u = jnp.atleast_1d(z[-self.udim:])
         xn = self.dynamics.mean(x, u)
-        return jnp.hstack((xn, u))
+        un = self.policy.mean(xn)
+        return jnp.hstack((xn, un))
 
     def sample(self, key, z):
-        x = jnp.atleast_1d(z[..., :self.xdim])
         u_key, x_key = jr.split(key, 2)
-        u = self.policy.sample(u_key, x)
-        xn = self.dynamics.sample(x_key, x, u)
-        return jnp.column_stack((xn, u))
 
-    def explicit_sample(self, z, v):
-        q = jnp.atleast_1d(v[..., :self.xdim])
-        r = jnp.atleast_1d(v[..., -self.udim:])
         x = jnp.atleast_1d(z[..., :self.xdim])
-        u = self.policy.explicit_sample(x, r)
-        xn = self.dynamics.explicit_sample(x, u, q)
-        return jnp.column_stack((xn, u))
+        u = jnp.atleast_1d(z[..., -self.udim:])
+
+        xn = self.dynamics.sample(x_key, x, u)
+        un = self.policy.sample(u_key, xn)
+        return jnp.column_stack((xn, un))
 
     def logpdf(self, z, zn):
-        x = jnp.atleast_1d(z[..., :self.xdim])
-        u = jnp.atleast_1d(zn[..., -self.udim:])
-        xn = jnp.atleast_1d(zn[..., :self.xdim])
+        x = jnp.atleast_1d(z[:self.xdim])
+        u = jnp.atleast_1d(z[-self.udim:])
+
+        xn = jnp.atleast_1d(zn[:self.xdim])
+        un = jnp.atleast_1d(zn[-self.udim:])
 
         ll = self.dynamics.logpdf(x, u, xn)
-        ll += self.policy.logpdf(x, u)
-        return ll
+        ll += self.policy.logpdf(xn, un)
+
+        NINF = jnp.finfo(jnp.float64).min
+        return jnp.nan_to_num(ll, nan=NINF)
