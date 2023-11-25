@@ -23,9 +23,10 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-@partial(jax.jit, static_argnums=1)
+@partial(jax.jit, static_argnums=(1, 2))
 def expectation(
     key: jax.Array,
+    nb_particles: int,
     nb_samples: int,
     reference: jnp.ndarray,
     params: Dict,
@@ -62,7 +63,7 @@ def lower_bound(
 ):
     _, closedloop, log_obsrv = pendulum.create_env(params, eta)
     lls = pendulum.log_complete_likelihood(states, next_states, closedloop, log_obsrv)
-    return -jnp.sum(lls)
+    return - jnp.sum(lls)
 
 
 @jax.jit
@@ -120,9 +121,9 @@ def batcher(
 
 
 def create_train_state(
-        key: jax.Array,
-        module: nn.Module,
-        learning_rate: float
+    key: jax.Array,
+    module: nn.Module,
+    learning_rate: float
 ):
     init_data = jnp.zeros((2,))
     params = module.init(key, init_data)["params"]
@@ -134,19 +135,19 @@ def create_train_state(
     )
 
 
-key = jr.PRNGKey(123)
+key = jr.PRNGKey(25623572)
 
 nb_steps = 101
 nb_particles = 512
 nb_samples = 20
 
-nb_iter = 15
+nb_iter = 25
 init_eta = 1.0
 final_eta = 1.0
 log_eta = jnp.linspace(jnp.log(init_eta), jnp.log(final_eta), nb_iter)
 
 key, sub_key = jr.split(key, 2)
-opt_state = create_train_state(sub_key, pendulum.network, 1e-3)
+opt_state = create_train_state(sub_key, pendulum.network, 5e-4)
 
 start = clock.time()
 
@@ -169,7 +170,7 @@ idx = jr.choice(sub_key, a=nb_samples)
 reference = samples[idx, :, :]
 
 # for n in range(nb_samples):
-#     plt.plot(samples[n, :, 0])
+#     plt.plot(samples[n, :, :])
 # plt.show()
 
 for i in range(nb_iter):
@@ -181,6 +182,7 @@ for i in range(nb_iter):
     # expectation step
     samples = expectation(
         estep_key,
+        nb_particles,
         nb_samples,
         reference,
         opt_state.params,
@@ -192,7 +194,8 @@ for i in range(nb_iter):
     batches = batcher(mstep_key, samples, 64)
     for batch in batches:
         states, next_states = batch
-        opt_state, batch_loss = maximization(opt_state, states, next_states, eta)
+        opt_state, batch_loss = \
+            maximization(opt_state, states, next_states, eta)
         loss += batch_loss
 
     print(
@@ -209,9 +212,9 @@ jax.block_until_ready(opt_state)
 end = clock.time()
 print("Compilation + Execution Time:", end - start)
 
-for n in range(nb_particles):
-    plt.plot(samples[n, :, :])
-plt.show()
+# for n in range(nb_samples):
+#     plt.plot(samples[n, :, :])
+# plt.show()
 
 prior, closedloop, _ = \
     pendulum.create_env(opt_state.params, final_eta)
