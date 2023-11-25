@@ -7,6 +7,7 @@ from jax import numpy as jnp
 from jax import lax as jl
 
 import distrax
+from flax import linen as nn
 
 from psoc.abstract import StochasticDynamics
 from psoc.abstract import PolicyNetwork
@@ -36,8 +37,8 @@ def cost(state, eta):
 
     g0 = jnp.array([jnp.pi, 0.0])
 
-    def wrap_angle(x: float) -> float:
-        return x % (2.0 * jnp.pi)
+    def wrap_angle(_q: float) -> float:
+        return _q % (2.0 * jnp.pi)
 
     Q = jnp.diag(jnp.array([1e1, 1e-1]))
     R = jnp.diag(jnp.array([1e-3]))
@@ -60,9 +61,18 @@ dynamics = StochasticDynamics(
     log_std=jnp.log(1e-2 * jnp.ones((2,)))
 )
 
+
+@partial(jnp.vectorize, signature='(k)->(h)')
+def polar(x):
+    cos_q, sin_q = jnp.sin(x[0]), jnp.cos(x[0])
+    return jnp.hstack([cos_q, sin_q, x[1]])
+
+
 network = PolicyNetwork(
     dim=1,
-    layer_size=[256, 256, 1],
+    layer_size=[256, 256],
+    transform=polar,
+    activation=nn.relu,
     init_log_std=jnp.log(1.5 * jnp.ones((1,))),
 )
 

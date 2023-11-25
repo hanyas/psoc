@@ -135,15 +135,15 @@ def create_train_state(
     )
 
 
-key = jr.PRNGKey(25623572)
+key = jr.PRNGKey(51241)
 
 nb_steps = 101
 nb_particles = 512
 nb_samples = 20
 
 nb_iter = 25
-init_eta = 1.0
-final_eta = 1.0
+init_eta = 0.5
+final_eta = 0.5
 log_eta = jnp.linspace(jnp.log(init_eta), jnp.log(final_eta), nb_iter)
 
 key, sub_key = jr.split(key, 2)
@@ -166,7 +166,7 @@ samples, weights = smc(
 )
 
 key, sub_key = jr.split(key, 2)
-idx = jr.choice(sub_key, a=nb_samples)
+idx = jr.choice(sub_key, a=nb_samples, p=weights)
 reference = samples[idx, :, :]
 
 # for n in range(nb_samples):
