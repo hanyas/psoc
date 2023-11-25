@@ -139,19 +139,19 @@ def csmc(
         key = carry
         key, sub_key = jr.split(key, 2)
 
-        # sample = _backward_sampling(
-        #     sub_key,
-        #     filter_particles,
-        #     filter_weights,
-        #     transition_model
-        # )
-
-        sample = _backward_tracing(
+        sample = _backward_sampling(
             sub_key,
             filter_particles,
-            filter_ancestors,
             filter_weights,
+            transition_model
         )
+
+        # sample = _backward_tracing(
+        #     sub_key,
+        #     filter_particles,
+        #     filter_ancestors,
+        #     filter_weights,
+        # )
         return key, sample
 
     key, ref_key = jr.split(key, 2)

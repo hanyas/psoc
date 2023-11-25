@@ -136,19 +136,19 @@ def smc(
         key = carry
         key, sub_key = jr.split(key, 2)
 
-        # smoother_path_sample, sample_weight = _backward_sampling(
-        #     sub_key,
-        #     filter_particles,
-        #     filter_weights,
-        #     transition_model
-        # )
-
-        smoother_path_sample, sample_weight = _backward_tracing(
+        smoother_path_sample, sample_weight = _backward_sampling(
             sub_key,
             filter_particles,
-            filter_ancestors,
-            filter_weights
+            filter_weights,
+            transition_model
         )
+
+        # smoother_path_sample, sample_weight = _backward_tracing(
+        #     sub_key,
+        #     filter_particles,
+        #     filter_ancestors,
+        #     filter_weights
+        # )
         return key, (smoother_path_sample, sample_weight)
 
     _, (smoother_samples, smoother_weights) = \
