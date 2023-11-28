@@ -76,7 +76,12 @@ class OrnsteinUhlenbeck(nn.Module):
     def __call__(self, u):
         l = self.param('l', lambda rng, shape: self.init_params[0], 1)
         q = self.param('q', lambda rng, shape: self.init_params[1], 1)
-        return jnp.exp(- l * self.step) * u
+
+        sigma_sqr = q / (2.0 * l) * (1.0 - jnp.exp(-2.0 * l * self.step))
+        return (
+            jnp.exp(- l * self.step) * u,
+            q / (2.0 * l) * (1.0 - jnp.exp(-2.0 * l * self.step))
+        )
 
 
 class OpenloopPolicy(NamedTuple):
@@ -90,15 +95,12 @@ class OpenloopPolicy(NamedTuple):
 
     def mean(self, u):
         _params = constrain(self.params)
-        un = self.module.apply({'params': _params}, u)
+        un, _ = self.module.apply({'params': _params}, u)
         return self.bijector.forward(un)
 
     def distribution(self, u):
         _params = constrain(self.params)
-        l, q = _params['l'], _params['q']
-
-        un = self.module.apply({'params': _params}, u)
-        sigma_sqr = q / (2.0 * l) * (1.0 - jnp.exp(-2.0 * l * self.module.step))
+        un, sigma_sqr = self.module.apply({'params': _params}, u)
 
         raw_dist = distrax.MultivariateNormalDiag(
             loc=un, scale_diag=jnp.atleast_1d(jnp.sqrt(sigma_sqr))
@@ -199,9 +201,7 @@ class FeedbackLoop(NamedTuple):
 
         ll = self.dynamics.logpdf(x, u, xn)
         ll += self.policy.logpdf(xn, un)
-
-        NINF = jnp.finfo(jnp.float64).min
-        return jnp.nan_to_num(ll, nan=NINF)
+        return ll
 
 
 class OpenLoop(NamedTuple):
@@ -242,6 +242,4 @@ class OpenLoop(NamedTuple):
 
         ll = self.dynamics.logpdf(x, u, xn)
         ll += self.policy.logpdf(u, un)
-
-        NINF = jnp.finfo(jnp.float64).min
-        return jnp.nan_to_num(ll, nan=NINF)
+        return ll
