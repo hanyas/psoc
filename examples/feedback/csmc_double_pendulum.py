@@ -13,7 +13,7 @@ from flax.training.train_state import TrainState
 import optax
 
 from psoc.algorithms import smc, csmc
-from psoc.environments import double_pendulum_env as double_pendulum
+from psoc.environments.feedback import double_pendulum_env as double_pendulum
 
 import matplotlib.pyplot as plt
 import time as clock
