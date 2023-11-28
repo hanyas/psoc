@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 
 import distrax
 
-from psoc.abstract import ClosedLoop
+from psoc.abstract import FeedbackLoop
 
 
 def _backward_tracing(
@@ -43,7 +43,7 @@ def _backward_sampling(
     key: jax.Array,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: ClosedLoop,
+    transition_model: FeedbackLoop,
 ):
     nb_particles = filter_particles.shape[1]
     trans_logpdf = jax.vmap(transition_model.logpdf, in_axes=(0, None))
@@ -84,7 +84,7 @@ def csmc(
     nb_particles: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
-    transition_model: ClosedLoop,
+    transition_model: FeedbackLoop,
     log_observation: Callable,
 ):
     def _propagate(key, particles):

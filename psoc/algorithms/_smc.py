@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 
 import distrax
 
-from psoc.abstract import ClosedLoop
+from psoc.abstract import FeedbackLoop
 
 
 def _backward_tracing(
@@ -44,7 +44,7 @@ def _backward_sampling(
     key: jax.Array,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: ClosedLoop
+    transition_model: FeedbackLoop,
 ):
     nb_particles = filter_particles.shape[1]
     trans_logpdf = jax.vmap(transition_model.logpdf, in_axes=(0, None))
@@ -84,9 +84,10 @@ def smc(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
+    nb_samples: int,
     prior: distrax.Distribution,
-    transition_model: ClosedLoop,
-    log_observation: Callable
+    transition_model: FeedbackLoop,
+    log_observation: Callable,
 ):
     def _propagate(key, particles):
         return transition_model.sample(key, particles)
@@ -99,7 +100,7 @@ def smc(
 
         # resample
         key, sub_key = jr.split(key, 2)
-        ancestors = jr.choice(key, a=nb_particles,
+        ancestors = jr.choice(sub_key, a=nb_particles,
                               shape=(nb_particles,), p=prev_weights)
 
         # propagate
@@ -119,11 +120,12 @@ def smc(
     init_particles = prior.sample(seed=sub_key, sample_shape=(nb_particles,))
     init_weights = jnp.ones((nb_particles,)) / nb_particles
 
+    key, sub_key = jr.split(key, 2)
     (key, last_particles, last_weights), \
         (filter_particles, filter_weights, filter_ancestors) = \
         jl.scan(
             body,
-            (key, init_particles, init_weights),
+            (sub_key, init_particles, init_weights),
             (),
             length=nb_steps-1
         )
@@ -131,12 +133,17 @@ def smc(
     filter_particles = jnp.insert(filter_particles, nb_steps, last_particles, 0)
     filter_weights = jnp.insert(filter_weights, nb_steps, last_weights, 0)
 
-    key, sub_key = jr.split(key, 2)
-    smoother_sample, _ = _backward_sampling(
-        sub_key,
-        filter_particles,
-        filter_weights,
-        transition_model
-    )
+    def body(carry, args):
+        key = carry
+        key, sub_key = jr.split(key, 2)
+        sample, weight = _backward_sampling(
+            sub_key,
+            filter_particles,
+            filter_weights,
+            transition_model
+        )
+        return key, (sample, weight)
 
-    return smoother_sample
+    key, sub_key = jr.split(key, 2)
+    _, (samples, weights) = jl.scan(body, sub_key, (), length=nb_samples)
+    return samples, weights

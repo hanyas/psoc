@@ -1,18 +1,15 @@
-from typing import Callable
 from functools import partial
 
 import jax
-
 from jax import numpy as jnp
-from jax import lax as jl
 
 import distrax
 from flax import linen as nn
 
 from psoc.abstract import StochasticDynamics
-from psoc.abstract import PolicyNetwork
-from psoc.abstract import StochasticPolicy
-from psoc.abstract import ClosedLoop
+from psoc.abstract import Network
+from psoc.abstract import FeedbackPolicy
+from psoc.abstract import FeedbackLoop
 
 from psoc.utils import Tanh
 
@@ -40,11 +37,11 @@ def ode(
 
 
 @partial(jnp.vectorize, signature='(k),()->()')
-def cost(state, eta):
+def reward(state, eta):
     goal = jnp.array([0.0, 0.0, 0.0])
     weights = jnp.array([1e2, 1e0, 1e-1])
-    cost = - 0.5 * jnp.dot(state - goal, weights * (state - goal))
-    return eta * cost
+    cost = jnp.dot(state - goal, weights * (state - goal))
+    return - 0.5 * eta * cost
 
 
 prior = distrax.MultivariateNormalDiag(
@@ -65,7 +62,7 @@ def identity(x):
     return x
 
 
-network = PolicyNetwork(
+network = Network(
     dim=1,
     layer_size=[],
     transform=identity,
@@ -80,43 +77,13 @@ bijector = distrax.Chain([
 
 
 def create_env(params, eta):
-    policy = StochasticPolicy(
+    policy = FeedbackPolicy(
         network, bijector, params
     )
 
-    closedloop = ClosedLoop(
+    closedloop = FeedbackLoop(
         dynamics, policy
     )
 
-    anon_cost = lambda z: cost(z, eta)
-    return prior, closedloop, anon_cost
-
-
-def simulate(
-    prior: distrax.Distribution,
-    transition_model: ClosedLoop,
-    length: int,
-):
-    def body(carry, args):
-        prev_state = carry
-        next_state = transition_model.mean(prev_state)
-        return next_state, next_state
-
-    init_state = prior.mean()
-    _, states = \
-        jl.scan(body, init_state, (), length=length - 1)
-
-    states = jnp.insert(states, 0, init_state, 0)
-    return states
-
-
-@partial(jax.vmap, in_axes=(0, 0, None, None))
-def log_complete_likelihood(
-    state: jnp.ndarray,
-    next_state: jnp.ndarray,
-    transition_model: ClosedLoop,
-    log_observation: Callable,
-):
-    ll = transition_model.logpdf(state, next_state) \
-         + log_observation(next_state)
-    return ll
+    anon_rwrd = lambda z: reward(z, eta)
+    return prior, closedloop, anon_rwrd
