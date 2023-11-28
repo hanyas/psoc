@@ -102,8 +102,7 @@ def compute_cost(
     env,
 ):
     _, _, reward = env.create_env(params, eta)
-    _, next_states = create_pairs(samples)
-    return - jnp.mean(jax.vmap(reward)(next_states))
+    return - jnp.mean(jnp.sum(reward(samples), axis=0))
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3, -1))
@@ -218,5 +217,3 @@ def log_complete_likelihood(
     ll = transition_model.logpdf(state, next_state) \
          + log_observation(next_state)
     return ll
-
-
