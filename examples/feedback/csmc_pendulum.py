@@ -9,7 +9,7 @@ from psoc.common import batcher
 from psoc.common import create_train_state
 from psoc.common import csmc_sampling
 from psoc.common import maximization
-from psoc.common import simulate
+from psoc.common import rollout
 
 import matplotlib.pyplot as plt
 
@@ -22,11 +22,12 @@ key = jr.PRNGKey(5121)
 
 nb_steps = 101
 nb_particles = 16
-nb_samples = 50
+nb_samples = 10
 
-nb_iter = 25
-eta = 0.1
+init_state = jnp.zeros((3,))
+tempering = 0.1
 
+nb_iter = 100
 lr = 1e-3
 batch_size = 32
 
@@ -39,47 +40,54 @@ opt_state = create_train_state(
 )
 
 prior, closedloop, reward = \
-    pendulum.create_env(opt_state.params, eta)
+    pendulum.create_env(init_state, opt_state.params, tempering)
 
 key, sub_key = jr.split(key, 2)
 samples, weights = smc(
     sub_key,
     nb_steps,
-    int(nb_particles * 10),
-    int(nb_particles * 10),
+    int(10 * nb_particles),
+    int(10 * nb_particles),
     prior,
     closedloop,
     reward,
 )
 key, sub_key = jr.split(key, 2)
-idx = jr.choice(sub_key, a=int(nb_particles * 10), p=weights)
+idx = jr.choice(sub_key, a=len(samples), p=weights)
 reference = samples[idx, ...]
 
 # plt.plot(reference)
 # plt.show()
 
 for i in range(nb_iter):
-    key, estep_key, mstep_key = jr.split(key, 3)
+    key, sample_key, max_key = jr.split(key, 3)
 
     # sampling step
     samples = csmc_sampling(
-        estep_key,
+        sample_key,
         nb_steps,
         nb_particles,
         nb_samples,
         reference,
+        init_state,
         opt_state.params,
-        eta,
+        tempering,
         pendulum
-    )
+    )[5:]
 
     # maximization step
     loss = 0.0
-    batches = batcher(mstep_key, samples, batch_size)
+    batches = batcher(max_key, samples, batch_size)
     for batch in batches:
         states, next_states = batch
-        opt_state, batch_loss = \
-            maximization(opt_state, states, next_states, eta, pendulum)
+        opt_state, batch_loss = maximization(
+            states,
+            next_states,
+            init_state,
+            opt_state,
+            tempering,
+            pendulum
+        )
         loss += batch_loss
 
     print(
@@ -95,12 +103,15 @@ for i in range(nb_iter):
 #     plt.plot(samples[n, :, :])
 # plt.show()
 
-prior, closedloop, _ = \
-    pendulum.create_env(opt_state.params, eta)
-states = simulate(prior, closedloop, nb_steps)
+key, sub_key = jr.split(key, 2)
+rollout = rollout(
+    sub_key,
+    nb_steps,
+    init_state,
+    opt_state.params,
+    tempering,
+    pendulum,
+)
 
-plt.figure()
-plt.plot(states)
-plt.legend([r"$\theta$", r"$d\theta/dt$", "u"])
-plt.title("Sample closed loop trajectory")
+plt.plot(rollout)
 plt.show()

@@ -1,6 +1,8 @@
 from typing import Callable, Dict
 from functools import partial
 
+import math
+
 import jax
 from jax import numpy as jnp
 from jax import lax as jl
@@ -11,7 +13,6 @@ import numpy as onp
 from flax import linen as nn
 from flax.training.train_state import TrainState
 
-import distrax
 import optax
 
 from psoc.abstract import FeedbackLoop
@@ -38,14 +39,14 @@ def batcher(
     batch_idx = jr.permutation(key, len(states))
     batch_idx = onp.asarray(batch_idx)
 
-    # # include incomplete batch
-    # steps_per_epoch = math.ceil(len(states) / batch_size)
-    # batch_idx = onp.array_split(batch_idx, steps_per_epoch)
+    # include incomplete batch
+    steps_per_epoch = math.ceil(len(states) / batch_size)
+    batch_idx = onp.array_split(batch_idx, steps_per_epoch)
 
-    # Skip incomplete batch
-    steps_per_epoch = len(states) // batch_size
-    batch_idx = batch_idx[: steps_per_epoch * batch_size]
-    batch_idx = batch_idx.reshape((steps_per_epoch, batch_size))
+    # # Skip incomplete batch
+    # steps_per_epoch = len(states) // batch_size
+    # batch_idx = batch_idx[: steps_per_epoch * batch_size]
+    # batch_idx = batch_idx.reshape((steps_per_epoch, batch_size))
 
     for idx in batch_idx:
         yield states[idx], next_states[idx]
@@ -54,13 +55,15 @@ def batcher(
 def lower_bound(
     states: jnp.ndarray,
     next_states: jnp.ndarray,
-    params: Dict,
-    eta: float,
-    env,
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+    environment,
 ):
-    _, closedloop, reward = env.create_env(params, eta)
+    _, closedloop, reward = \
+        environment.create_env(init_state, parameters, tempering)
     lls = log_complete_likelihood(states, next_states, closedloop, reward)
-    return - jnp.sum(lls)
+    return - jnp.mean(lls)
 
 
 def create_train_state(
@@ -80,14 +83,22 @@ def create_train_state(
 
 @partial(jax.jit, static_argnums=(-1,))
 def maximization(
-    opt_state: TrainState,
     states: jnp.ndarray,
     next_states: jnp.ndarray,
-    eta: float,
-    env,
+    init_state: jnp.ndarray,
+    opt_state: TrainState,
+    tempering: float,
+    environment,
 ):
     def loss_fn(params):
-        loss = lower_bound(states, next_states, params, eta, env)
+        loss = lower_bound(
+            states,
+            next_states,
+            init_state,
+            params,
+            tempering,
+            environment
+        )
         return loss
 
     grad_fn = jax.value_and_grad(loss_fn)
@@ -97,11 +108,12 @@ def maximization(
 
 def compute_cost(
     samples: jnp.ndarray,
-    params: Dict,
-    eta: float,
-    env,
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+    environment,
 ):
-    _, _, reward = env.create_env(params, eta)
+    _, _, reward = environment.create_env(init_state, parameters, tempering)
     return - jnp.mean(jnp.sum(reward(samples), axis=0))
 
 
@@ -112,12 +124,13 @@ def csmc_sampling(
     nb_particles: int,
     nb_samples: int,
     reference: jnp.ndarray,
-    params: Dict,
-    eta: float,
-    env,
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+    environment,
 ):
     prior, closedloop, reward = \
-        env.create_env(params, eta)
+        environment.create_env(init_state, parameters, tempering)
 
     def body(carry, args):
         key, reference = carry
@@ -144,12 +157,13 @@ def smc_sampling(
     nb_steps: int,
     nb_particles: int,
     nb_samples: int,
-    params: Dict,
-    eta: float,
-    env,
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+    environment,
 ):
     prior, closedloop, reward = \
-        env.create_env(params, eta)
+        environment.create_env(init_state, parameters, tempering)
 
     key, sub_key = jr.split(key, 2)
     samples, weights = smc(
@@ -169,41 +183,25 @@ def smc_sampling(
 
 def rollout(
     key: jax.Array,
-    prior: distrax.Distribution,
-    transition_model: FeedbackLoop,
     nb_steps: int,
-    nb_samples: int,
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+    environment,
 ):
+    prior, closedloop, reward = \
+        environment.create_env(init_state, parameters, tempering)
+
     def body(carry, args):
         key, prev_state = carry
         key, sub_key = jr.split(key, 2)
-        next_state = transition_model.sample(sub_key, prev_state)
+        next_state = closedloop.forward(sub_key, prev_state)
         return (key, next_state), next_state
 
-    key, sub_key = jr.split(key, 2)
-    init_state = prior.sample(seed=sub_key, sample_shape=(nb_samples,))
     _, states = \
         jl.scan(body, (key, init_state), (), length=nb_steps - 1)
 
-    states = jnp.insert(states, 0, init_state, 0)
-    return states.swapaxes(0, 1)
-
-
-def simulate(
-    prior: distrax.Distribution,
-    transition_model: FeedbackLoop,
-    nb_steps: int,
-):
-    def body(carry, args):
-        prev_state = carry
-        next_state = transition_model.mean(prev_state)
-        return next_state, next_state
-
-    init_state = prior.mean()
-    _, states = \
-        jl.scan(body, init_state, (), length=nb_steps - 1)
-
-    states = jnp.insert(states, 0, init_state, 0)
+    states = jnp.vstack((init_state, states))
     return states
 
 

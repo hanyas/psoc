@@ -9,7 +9,7 @@ from psoc.common import batcher
 from psoc.common import create_train_state
 from psoc.common import csmc_sampling
 from psoc.common import maximization
-from psoc.common import simulate
+from psoc.common import rollout
 
 import matplotlib.pyplot as plt
 
@@ -18,17 +18,18 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-key = jr.PRNGKey(98123)
+key = jr.PRNGKey(151)
 
 nb_steps = 101
 nb_particles = 32
 nb_samples = 10
 
-nb_iter = 50
-eta = 0.1
+init_state = jnp.zeros((5,))
+tempering = 0.1
 
-lr = 5e-4
-batch_size = 64
+nb_iter = 100
+lr = 1e-3
+batch_size = 100
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
@@ -39,47 +40,54 @@ opt_state = create_train_state(
 )
 
 prior, closedloop, reward = \
-    cartpole.create_env(opt_state.params, eta)
+    cartpole.create_env(init_state, opt_state.params, tempering)
 
 key, sub_key = jr.split(key, 2)
 samples, weights = smc(
     sub_key,
     nb_steps,
-    int(nb_particles * 10),
-    nb_samples,
+    int(10 * nb_particles),
+    int(10 * nb_particles),
     prior,
     closedloop,
     reward,
 )
 key, sub_key = jr.split(key, 2)
-idx = jr.choice(sub_key, a=nb_samples, p=weights)
+idx = jr.choice(sub_key, a=len(samples), p=weights)
 reference = samples[idx, ...]
 
-# plt.plot(reference)
-# plt.show()
+plt.plot(reference)
+plt.show()
 
 for i in range(nb_iter):
-    key, estep_key, mstep_key = jr.split(key, 3)
+    key, sample_key, max_key = jr.split(key, 3)
 
-    # expectation step
+    # sampling step
     samples = csmc_sampling(
-        estep_key,
+        sample_key,
         nb_steps,
         nb_particles,
         nb_samples,
         reference,
+        init_state,
         opt_state.params,
-        eta,
+        tempering,
         cartpole
-    )
+    )[5:]
 
     # maximization step
     loss = 0.0
-    batches = batcher(mstep_key, samples, batch_size)
+    batches = batcher(max_key, samples, batch_size)
     for batch in batches:
         states, next_states = batch
-        opt_state, batch_loss = \
-            maximization(opt_state, states, next_states, eta, cartpole)
+        opt_state, batch_loss = maximization(
+            states,
+            next_states,
+            init_state,
+            opt_state,
+            tempering,
+            cartpole
+        )
         loss += batch_loss
 
     print(
@@ -96,12 +104,15 @@ for i in range(nb_iter):
 #     plt.plot(samples[n, :, :])
 # plt.show()
 
-prior, closedloop, _ = \
-    cartpole.create_env(opt_state.params, eta)
-states = simulate(prior, closedloop, nb_steps)
+key, sub_key = jr.split(key, 2)
+rollout = rollout(
+    sub_key,
+    nb_steps,
+    init_state,
+    opt_state.params,
+    tempering,
+    cartpole,
+)
 
-plt.figure()
-plt.plot(states[:, :-1])
-plt.legend(["x", r"$\theta$", "dx", r"$d\theta/dt$", "u"])
-plt.title("Sample closed loop trajectory")
+plt.plot(rollout[:, :-1])
 plt.show()

@@ -1,3 +1,4 @@
+from typing import Dict
 from functools import partial
 
 import jax
@@ -19,8 +20,6 @@ jax.config.update("jax_enable_x64", True)
 def ode(x, u):
     l, m = 1.0, 1.0
     g, d = 9.81, 1e-3
-
-    # u = jnp.clip(u, -5.0, 5.0)
 
     q, dq = x
     ddq = - g / l * jnp.sin(q) \
@@ -47,11 +46,6 @@ def reward(state, eta):
     return - 0.5 * eta * cost
 
 
-prior = distrax.MultivariateNormalDiag(
-    loc=jnp.zeros((3,)),
-    scale_diag=jnp.ones((3,)) * 1e-4
-)
-
 dynamics = StochasticDynamics(
     dim=2,
     ode=ode,
@@ -62,23 +56,37 @@ dynamics = StochasticDynamics(
 module = OrnsteinUhlenbeck(
     dim=1,
     step=0.05,
-    init_params=jnp.array([0.1, 0.5]),
+    init_params=jnp.array([20.0, 125.0]),
 )
 
 bijector = distrax.Chain([
     distrax.ScalarAffine(0.0, 5.0),
-    Tanh()
+    Tanh(),
 ])
 
+# bijector = distrax.Chain([
+#     distrax.ScalarAffine(-5.0, 10.0),
+#     distrax.Sigmoid(), distrax.ScalarAffine(0.0, 0.75),
+# ])
 
-def create_env(params, eta):
+
+def create_env(
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+):
+    prior = distrax.MultivariateNormalDiag(
+        loc=init_state,
+        scale_diag=jnp.ones((3,)) * 1e-4
+    )
+
     policy = OpenloopPolicy(
-        module, bijector, params
+        module, bijector, parameters
     )
 
     closedloop = OpenLoop(
         dynamics, policy
     )
 
-    anon_rwrd = lambda z: reward(z, eta)
+    anon_rwrd = lambda z: reward(z, tempering)
     return prior, closedloop, anon_rwrd

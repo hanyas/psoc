@@ -192,6 +192,14 @@ class FeedbackLoop(NamedTuple):
         un = self.policy.sample(u_key, xn)
         return jnp.column_stack((xn, un))
 
+    def forward(self, key, z):
+        x = jnp.atleast_1d(z[:self.xdim])
+        u = jnp.atleast_1d(z[-self.udim:])
+
+        xn = self.dynamics.sample(key, x, u)
+        un = self.policy.mean(xn)
+        return jnp.hstack((xn, un))
+
     def logpdf(self, z, zn):
         x = jnp.atleast_1d(z[:self.xdim])
         u = jnp.atleast_1d(z[-self.udim:])
@@ -232,6 +240,14 @@ class OpenLoop(NamedTuple):
         xn = self.dynamics.sample(x_key, x, u)
         un = self.policy.sample(u_key, u)
         return jnp.column_stack((xn, un))
+
+    def forward(self, key, z):
+        x = jnp.atleast_1d(z[:self.xdim])
+        u = jnp.atleast_1d(z[-self.udim:])
+
+        xn = self.dynamics.sample(key, x, u)
+        un = self.policy.mean(u)
+        return jnp.hstack((xn, un))
 
     def logpdf(self, z, zn):
         x = jnp.atleast_1d(z[:self.xdim])

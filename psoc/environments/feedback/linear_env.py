@@ -1,3 +1,4 @@
+from typing import Dict
 from functools import partial
 
 import jax
@@ -44,11 +45,6 @@ def reward(state, eta):
     return - 0.5 * eta * cost
 
 
-prior = distrax.MultivariateNormalDiag(
-    loc=jnp.array([1.0, 2.0, 0.0]),
-    scale_diag=jnp.ones((3,)) * 1e-4
-)
-
 dynamics = StochasticDynamics(
     dim=2,
     ode=ode,
@@ -76,14 +72,23 @@ bijector = distrax.Chain([
 ])
 
 
-def create_env(params, eta):
+def create_env(
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+):
+    prior = distrax.MultivariateNormalDiag(
+        loc=init_state,
+        scale_diag=jnp.ones((3,)) * 1e-4
+    )
+
     policy = FeedbackPolicy(
-        network, bijector, params
+        network, bijector, parameters
     )
 
     closedloop = FeedbackLoop(
         dynamics, policy
     )
 
-    anon_rwrd = lambda z: reward(z, eta)
+    anon_rwrd = lambda z: reward(z, tempering)
     return prior, closedloop, anon_rwrd
