@@ -116,16 +116,15 @@ def smc(
         return (key, next_particles, next_weights), \
             (prev_particles, prev_weights, ancestors)
 
-    key, sub_key = jr.split(key, 2)
-    init_particles = prior.sample(seed=sub_key, sample_shape=(nb_particles,))
+    key, init_key, scan_key, bwd_key = jr.split(key, 4)
+    init_particles = prior.sample(seed=init_key, sample_shape=(nb_particles,))
     init_weights = jnp.ones((nb_particles,)) / nb_particles
 
-    key, sub_key = jr.split(key, 2)
-    (key, last_particles, last_weights), \
+    (_, last_particles, last_weights), \
         (filter_particles, filter_weights, filter_ancestors) = \
         jl.scan(
             body,
-            (sub_key, init_particles, init_weights),
+            (scan_key, init_particles, init_weights),
             (),
             length=nb_steps-1
         )
@@ -144,6 +143,5 @@ def smc(
         )
         return key, (sample, weight)
 
-    key, sub_key = jr.split(key, 2)
-    _, (samples, weights) = jl.scan(body, sub_key, (), length=nb_samples)
+    _, (samples, weights) = jl.scan(body, bwd_key, (), length=nb_samples)
     return samples, weights
