@@ -5,13 +5,14 @@ import jax
 from jax import numpy as jnp
 
 import distrax
+from flax import linen as nn
 
 from psoc.abstract import StochasticDynamics
-from psoc.abstract import OrnsteinUhlenbeck
-from psoc.abstract import OpenloopPolicy
-from psoc.abstract import OpenLoop
+from psoc.abstract import Network
+from psoc.abstract import FeedbackPolicy
+from psoc.abstract import FeedbackLoop
 
-from psoc.utils import Tanh
+from psoc.bijector import Tanh
 
 jax.config.update("jax_enable_x64", True)
 
@@ -39,7 +40,7 @@ def ode(
 @partial(jnp.vectorize, signature='(k),()->()')
 def reward(state, eta):
     goal = jnp.array([0.0, 0.0, 0.0])
-    weights = jnp.array([1e2, 1e0, 1e0])
+    weights = jnp.array([1e2, 1e0, 1e-1])
     cost = jnp.dot(state - goal, weights * (state - goal))
     return - 0.5 * eta * cost
 
@@ -51,21 +52,24 @@ dynamics = StochasticDynamics(
     log_std=jnp.log(1e-2 * jnp.ones((2,)))
 )
 
-module = OrnsteinUhlenbeck(
+
+@partial(jnp.vectorize, signature='(k)->(h)')
+def identity(x):
+    return x
+
+
+network = Network(
     dim=1,
-    step=0.1,
-    init_params=jnp.array([25.0, 100.0]),
+    layer_size=[],
+    transform=identity,
+    activation=nn.relu,
+    init_log_std=jnp.log(1.0 * jnp.ones((1,))),
 )
 
 bijector = distrax.Chain([
     distrax.ScalarAffine(0.0, 2.5),
-    Tanh(),
+    Tanh()
 ])
-
-# bijector = distrax.Chain([
-#     distrax.ScalarAffine(-2.5, 5.0),
-#     distrax.Sigmoid(), distrax.ScalarAffine(0.0, 0.75),
-# ])
 
 
 def create_env(
@@ -78,13 +82,13 @@ def create_env(
         scale_diag=jnp.ones((3,)) * 1e-4
     )
 
-    policy = OpenloopPolicy(
-        module, bijector, parameters
+    policy = FeedbackPolicy(
+        network, bijector, parameters
     )
 
-    closedloop = OpenLoop(
+    loop = FeedbackLoop(
         dynamics, policy
     )
 
-    anon_rwrd = lambda z: reward(z, tempering)
-    return prior, closedloop, anon_rwrd
+    reward_fn = lambda z: reward(z, tempering)
+    return prior, loop, reward_fn

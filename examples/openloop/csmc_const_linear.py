@@ -2,10 +2,10 @@ import jax
 from jax import random as jr
 from jax import numpy as jnp
 
-from psoc.environments.openloop import linear_env as linear
+from psoc.environments.openloop import const_linear_env as linear
 
 from psoc.common import rollout
-from psoc.common import csmc_sampling
+from psoc.sampling import csmc_sampling
 
 import matplotlib.pyplot as plt
 

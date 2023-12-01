@@ -6,7 +6,7 @@ from jax import random as jr
 from jax import numpy as jnp
 
 from psoc.algorithms import rao_blackwell_csmc
-from psoc.environments.feedback import pendulum_env as pendulum
+from psoc.environments.feedback import cartpole_env as cartpole
 
 from psoc.utils import create_train_state
 from psoc.common import log_complete_likelihood
@@ -20,23 +20,23 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-key = jr.PRNGKey(2)
+key = jr.PRNGKey(1)
 
 nb_steps = 101
 nb_particles = 64
 nb_samples = 32
 
-init_state = jnp.zeros((3,))
+init_state = jnp.zeros((5,))
 tempering = 0.25
 
 nb_iter = 250
-lr = 1e-3
+lr = 5e-4
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
-    module=pendulum.network,
-    init_data=jnp.zeros((2,)),
+    module=cartpole.network,
+    init_data=jnp.zeros((4,)),
     learning_rate=lr
 )
 
@@ -48,7 +48,7 @@ reference = smc_sampling(
     init_state,
     opt_state.params,
     tempering,
-    pendulum
+    cartpole
 )[0]
 
 # plt.plot(reference)
@@ -63,7 +63,7 @@ def loss_fn(
     tempering: float
 ):
     _, loop, reward_fn = \
-        pendulum.create_env(init_state, parameters, tempering)
+        cartpole.create_env(init_state, parameters, tempering)
     loss = log_complete_likelihood(state, next_state, loop, reward_fn)
     return - 1.0 * loss
 
@@ -115,7 +115,7 @@ for i in range(nb_iter):
         init_state,
         opt_state.params,
         tempering,
-        pendulum
+        cartpole
     )
 
     opt_state = opt_state.apply_gradients(grads=score)
@@ -137,8 +137,8 @@ sample = rollout(
     init_state,
     opt_state.params,
     tempering,
-    pendulum,
+    cartpole,
 )
 
-plt.plot(sample)
+plt.plot(sample[:, :-1])
 plt.show()

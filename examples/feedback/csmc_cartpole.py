@@ -2,14 +2,11 @@ import jax
 from jax import random as jr
 from jax import numpy as jnp
 
-from psoc.algorithms import smc
 from psoc.environments.feedback import cartpole_env as cartpole
 
-from psoc.common import batcher
-from psoc.common import create_train_state
-from psoc.common import csmc_sampling
-from psoc.common import maximization
-from psoc.common import rollout
+from psoc.sampling import smc_sampling, csmc_sampling
+from psoc.utils import batcher, create_train_state
+from psoc.common import maximization, rollout
 
 import matplotlib.pyplot as plt
 
@@ -21,15 +18,15 @@ jax.config.update("jax_enable_x64", True)
 key = jr.PRNGKey(151)
 
 nb_steps = 101
-nb_particles = 32
-nb_samples = 10
+nb_particles = 64
+nb_samples = 20
 
 init_state = jnp.zeros((5,))
-tempering = 0.1
+tempering = 0.25
 
 nb_iter = 100
-lr = 1e-3
-batch_size = 100
+lr = 5e-4
+batch_size = 32
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
@@ -39,25 +36,20 @@ opt_state = create_train_state(
     learning_rate=lr
 )
 
-prior, closedloop, reward = \
-    cartpole.create_env(init_state, opt_state.params, tempering)
-
 key, sub_key = jr.split(key, 2)
-samples, weights = smc(
+reference = smc_sampling(
     sub_key,
     nb_steps,
     int(10 * nb_particles),
-    int(10 * nb_particles),
-    prior,
-    closedloop,
-    reward,
-)
-key, sub_key = jr.split(key, 2)
-idx = jr.choice(sub_key, a=len(samples), p=weights)
-reference = samples[idx, ...]
+    1,
+    init_state,
+    opt_state.params,
+    tempering,
+    cartpole
+)[0]
 
-plt.plot(reference)
-plt.show()
+# plt.plot(reference)
+# plt.show()
 
 for i in range(nb_iter):
     key, sample_key, max_key = jr.split(key, 3)
@@ -73,7 +65,7 @@ for i in range(nb_iter):
         opt_state.params,
         tempering,
         cartpole
-    )[5:]
+    )
 
     # maximization step
     loss = 0.0
@@ -105,7 +97,7 @@ for i in range(nb_iter):
 # plt.show()
 
 key, sub_key = jr.split(key, 2)
-rollout = rollout(
+sample = rollout(
     sub_key,
     nb_steps,
     init_state,
@@ -114,5 +106,5 @@ rollout = rollout(
     cartpole,
 )
 
-plt.plot(rollout[:, :-1])
+plt.plot(sample[:, :-1])
 plt.show()

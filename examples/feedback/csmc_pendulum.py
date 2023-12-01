@@ -2,14 +2,11 @@ import jax
 from jax import random as jr
 from jax import numpy as jnp
 
-from psoc.algorithms import smc
 from psoc.environments.feedback import pendulum_env as pendulum
 
-from psoc.common import batcher
-from psoc.common import create_train_state
-from psoc.common import csmc_sampling
-from psoc.common import maximization
-from psoc.common import rollout
+from psoc.sampling import smc_sampling, csmc_sampling
+from psoc.utils import batcher, create_train_state
+from psoc.common import maximization, rollout
 
 import matplotlib.pyplot as plt
 
@@ -31,7 +28,6 @@ nb_iter = 100
 lr = 5e-4
 batch_size = 32
 
-
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
@@ -40,20 +36,17 @@ opt_state = create_train_state(
     learning_rate=lr
 )
 
-prior, closedloop, reward_fn = \
-    pendulum.create_env(init_state, opt_state.params, tempering)
-
 key, sub_key = jr.split(key, 2)
-samples, _ = smc(
+reference = smc_sampling(
     sub_key,
     nb_steps,
     int(10 * nb_particles),
     1,
-    prior,
-    closedloop,
-    reward_fn,
-)
-reference = samples[0]
+    init_state,
+    opt_state.params,
+    tempering,
+    pendulum
+)[0]
 
 # plt.plot(reference)
 # plt.show()

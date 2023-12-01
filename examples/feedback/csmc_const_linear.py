@@ -2,7 +2,7 @@ import jax
 from jax import random as jr
 from jax import numpy as jnp
 
-from psoc.environments.feedback import linear_env as linear
+from psoc.environments.feedback import const_linear_env as linear
 
 from psoc.sampling import smc_sampling, csmc_sampling
 from psoc.utils import batcher, create_train_state
@@ -24,7 +24,7 @@ nb_samples = 25
 init_state = jnp.array([1.0, 2.0, 0.0])
 tempering = 0.1
 
-nb_iter = 250
+nb_iter = 100
 lr = 5e-3
 batch_size = 64
 

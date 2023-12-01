@@ -12,7 +12,7 @@ from psoc.abstract import Network
 from psoc.abstract import FeedbackPolicy
 from psoc.abstract import FeedbackLoop
 
-from psoc.utils import Tanh
+from psoc.bijector import Tanh
 
 jax.config.update("jax_enable_x64", True)
 
@@ -67,7 +67,7 @@ dynamics = StochasticDynamics(
     dim=4,
     ode=ode,
     step=0.05,
-    log_std=jnp.log(jnp.array([1e-4, 1e-4, 1e-2, 1e-2]))
+    log_std=jnp.log(1e-2 * jnp.ones((4,)))
 )
 
 
@@ -110,9 +110,9 @@ def create_env(
         network, bijector, parameters
     )
 
-    closedloop = FeedbackLoop(
+    loop = FeedbackLoop(
         dynamics, policy
     )
 
-    anon_rwrd = lambda z: reward(z, tempering)
-    return prior, closedloop, anon_rwrd
+    reward_fn = lambda z: reward(z, tempering)
+    return prior, loop, reward_fn

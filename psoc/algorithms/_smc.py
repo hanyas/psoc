@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Union
 
 import jax
 from jax import random as jr
@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 
 import distrax
 
-from psoc.abstract import FeedbackLoop
+from psoc.abstract import OpenLoop, FeedbackLoop
 
 
 def _backward_tracing(
@@ -23,8 +23,7 @@ def _backward_tracing(
     # last time step
     key, sub_key = jr.split(key, 2)
     b = jr.choice(sub_key, a=nb_particles, p=filter_weights[-1])
-    last_smoother_state = filter_particles[-1, b]
-    last_smoother_weight = filter_weights[-1, b]
+    last_state = filter_particles[-1, b]
 
     def body(carry, args):
         next_b = carry
@@ -32,12 +31,12 @@ def _backward_tracing(
         b = ancestors[next_b]
         return b, particles[b]
 
-    _, smoother_sample = jl.scan(
+    _, sample = jl.scan(
         body, b, (filter_particles[:-1], filter_ancestors), reverse=True
     )
 
-    smoother_sample = jnp.vstack((smoother_sample, last_smoother_state))
-    return smoother_sample, last_smoother_weight
+    sample = jnp.vstack((sample, last_state))
+    return sample
 
 
 def _backward_sampling(
@@ -52,8 +51,7 @@ def _backward_sampling(
     # last time step
     key, sub_key = jr.split(key, 2)
     b = jr.choice(sub_key, a=nb_particles, p=filter_weights[-1])
-    last_smoother_state = filter_particles[-1, b]
-    last_smoother_weight = filter_weights[-1, b]
+    last_state = filter_particles[-1, b]
 
     def body(carry, args):
         key, next_state = carry
@@ -68,16 +66,16 @@ def _backward_sampling(
         state = particles[b]
         return (key, state), next_state
 
-    (_, first_smoother_state), smoother_sample = \
+    (_, first_state), sample = \
         jl.scan(
             body,
-            (key, last_smoother_state),
+            (key, last_state),
             (filter_particles[:-1], filter_weights[:-1]),
             reverse=True,
     )
 
-    smoother_sample = jnp.vstack((first_smoother_state, smoother_sample))
-    return smoother_sample, last_smoother_weight
+    sample = jnp.vstack((first_state, sample))
+    return sample
 
 
 def smc(
@@ -86,7 +84,7 @@ def smc(
     nb_particles: int,
     nb_samples: int,
     prior: distrax.Distribution,
-    transition_model: FeedbackLoop,
+    transition_model: Union[OpenLoop, FeedbackLoop],
     log_observation: Callable,
 ):
     def _propagate(key, particles):
@@ -135,13 +133,13 @@ def smc(
     def body(carry, args):
         key = carry
         key, sub_key = jr.split(key, 2)
-        sample, weight = _backward_sampling(
+        sample = _backward_sampling(
             sub_key,
             filter_particles,
             filter_weights,
             transition_model
         )
-        return key, (sample, weight)
+        return key, sample
 
-    _, (samples, weights) = jl.scan(body, bwd_key, (), length=nb_samples)
-    return samples, weights
+    _, samples = jl.scan(body, bwd_key, (), length=nb_samples)
+    return samples

@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Union
 from typing import Callable
 
 import jax
@@ -10,7 +10,7 @@ from jax.scipy.special import logsumexp
 
 import distrax
 
-from psoc.abstract import FeedbackLoop
+from psoc.abstract import OpenLoop, FeedbackLoop
 
 
 def _backward_tracing(
@@ -40,12 +40,12 @@ def _backward_tracing(
     return reference
 
 
-def _rb_backward_sampling(
+def _rao_blackwell_backward_sampling(
     key: jax.Array,
     nb_samples: int,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: FeedbackLoop,
+    transition_model: Union[OpenLoop, FeedbackLoop],
     loss_fn: Callable,
     score_fn: Callable,
     loss_fn_params: Dict,
@@ -111,7 +111,7 @@ def _backward_sampling(
     key: jax.Array,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: FeedbackLoop,
+    transition_model: Union[OpenLoop, FeedbackLoop],
 ):
     nb_particles = filter_particles.shape[1]
     trans_logpdf = jax.vmap(transition_model.logpdf, in_axes=(0, None))
@@ -146,14 +146,15 @@ def _backward_sampling(
     return reference
 
 
-def csmc(
+def _abstract_csmc(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
-    transition_model: FeedbackLoop,
+    transition_model: Union[OpenLoop, FeedbackLoop],
     log_observation: Callable,
+    backward_sampling_fn: Callable,
 ):
     def _propagate(key, particles):
         return transition_model.sample(key, particles)
@@ -203,86 +204,74 @@ def csmc(
     filter_weights = jnp.insert(filter_weights, nb_steps, last_weights, 0)
 
     key, sub_key = jr.split(key, 2)
-    sample = _backward_sampling(
+    return backward_sampling_fn(
         sub_key,
         filter_particles,
         filter_weights,
         transition_model
     )
 
-    return sample
+
+def vanilla_csmc(
+    key: jax.Array,
+    nb_steps: int,
+    nb_particles: int,
+    reference: jnp.ndarray,
+    prior: distrax.Distribution,
+    transition_model: Union[OpenLoop, FeedbackLoop],
+    log_observation: Callable,
+):
+    key, sub_key = jr.split(key, 2)
+    return _abstract_csmc(
+        sub_key,
+        nb_steps,
+        nb_particles,
+        reference,
+        prior,
+        transition_model,
+        log_observation,
+        _backward_sampling,
+    )
 
 
-def rb_csmc(
+def rao_blackwell_csmc(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
     nb_samples: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
-    transition_model: FeedbackLoop,
+    transition_model: Union[OpenLoop, FeedbackLoop],
     log_observation: Callable,
     loss_fn: Callable,
     score_fn: Callable,
     loss_fn_params: Dict,
 ):
-    def _propagate(key, particles):
-        return transition_model.sample(key, particles)
-
-    def _log_weights(state):
-        return log_observation(state)
-
-    def body(carry, args):
-        prev_particles, prev_weights = carry
-        next_ref, res_key, prop_key = args
-
-        rest_ancestors = jr.choice(res_key, a=nb_particles,
-                                   shape=(nb_particles - 1,), p=prev_weights)
-        ancestors = jnp.hstack((0, rest_ancestors))
-
-        resampled_particles = prev_particles[rest_ancestors]
-        next_rest_particles = _propagate(prop_key, resampled_particles)
-        next_particles = jnp.insert(next_rest_particles, 0, next_ref, 0)
-
-        log_next_weights = _log_weights(next_particles)
-        next_weights_norm = logsumexp(log_next_weights)
-        next_weights = jnp.exp(log_next_weights - next_weights_norm)
-
-        return (next_particles, next_weights), \
-            (prev_particles, prev_weights, ancestors)
-
-    key, sub_key = jr.split(key, 2)
-    init_rest_particles = prior.sample(seed=sub_key, sample_shape=(nb_particles - 1,))
-    init_particles = jnp.insert(init_rest_particles, 0, reference[0], 0)
-    init_weights = jnp.ones((nb_particles,)) / nb_particles
-
-    keys = jr.split(key, nb_steps)
-    key, resampling_keys = keys[0], keys[1:]
-
-    keys = jr.split(key, nb_steps)
-    key, propagation_keys = keys[0], keys[1:]
-
-    (last_particles, last_weights), \
-        (filter_particles, filter_weights, filter_ancestors) = \
-        jl.scan(
-            body,
-            (init_particles, init_weights),
-            (reference[1:], resampling_keys, propagation_keys)
-        )
-
-    filter_particles = jnp.insert(filter_particles, nb_steps, last_particles, 0)
-    filter_weights = jnp.insert(filter_weights, nb_steps, last_weights, 0)
-
-    key, sub_key = jr.split(key, 2)
-    sample, loss, score = _rb_backward_sampling(
-        sub_key,
-        nb_samples,
+    def _backward_sampling_fn(
+        key,
         filter_particles,
         filter_weights,
         transition_model,
-        loss_fn,
-        score_fn,
-        loss_fn_params
-    )
+    ):
+        return _rao_blackwell_backward_sampling(
+            key,
+            nb_samples,
+            filter_particles,
+            filter_weights,
+            transition_model,
+            loss_fn,
+            score_fn,
+            loss_fn_params
+        )
 
-    return sample, loss, score
+    key, sub_key = jr.split(key, 2)
+    return _abstract_csmc(
+        sub_key,
+        nb_steps,
+        nb_particles,
+        reference,
+        prior,
+        transition_model,
+        log_observation,
+        _backward_sampling_fn,
+    )

@@ -1,15 +1,12 @@
-from typing import Dict, Callable, NamedTuple, Sequence
+from typing import Dict, Callable, NamedTuple, Sequence, Union
 
-import jax
 from jax import random as jr
 from jax import numpy as jnp
 
 import distrax
 from flax import linen as nn
 
-
-def constrain(params: Dict):
-    return jax.tree_map(lambda _x: jnp.log1p(jnp.exp(_x)), params)
+from psoc.utils import constrain
 
 
 class Network(nn.Module):

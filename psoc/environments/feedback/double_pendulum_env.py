@@ -1,3 +1,4 @@
+from typing import Dict
 from functools import partial
 
 import jax
@@ -11,7 +12,7 @@ from psoc.abstract import Network
 from psoc.abstract import FeedbackPolicy
 from psoc.abstract import FeedbackLoop
 
-from psoc.utils import Tanh
+from psoc.bijector import Tanh
 
 jax.config.update("jax_enable_x64", True)
 
@@ -103,17 +104,11 @@ def reward(state, eta):
     cost += u.T @ R @ u
     return - 0.5 * eta * cost
 
-
-prior = distrax.MultivariateNormalDiag(
-    loc=jnp.zeros((6,)),
-    scale_diag=jnp.ones((6,)) * 1e-4
-)
-
 dynamics = StochasticDynamics(
     dim=4,
     ode=ode,
     step=0.05,
-    log_std=jnp.log(jnp.array([1e-4, 1e-4, 1e-2, 1e-2]))
+    log_std=jnp.log(1e-2 * jnp.ones((4,)))
 )
 
 
@@ -126,10 +121,10 @@ def polar(x):
 
 network = Network(
     dim=2,
-    layer_size=[512, 512],
+    layer_size=[256, 256],
     transform=polar,
     activation=nn.relu,
-    init_log_std=jnp.log(1.0 * jnp.ones((2,))),
+    init_log_std=jnp.log(1.5 * jnp.ones((2,))),
 )
 
 bijector = distrax.Chain([
@@ -138,14 +133,23 @@ bijector = distrax.Chain([
 ])
 
 
-def create_env(params, eta):
-    policy = FeedbackPolicy(
-        network, bijector, params
+def create_env(
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+):
+    prior = distrax.MultivariateNormalDiag(
+        loc=init_state,
+        scale_diag=jnp.ones((6,)) * 1e-4
     )
 
-    closedloop = FeedbackLoop(
+    policy = FeedbackPolicy(
+        network, bijector, parameters
+    )
+
+    loop = FeedbackLoop(
         dynamics, policy
     )
 
-    anon_rwrd = lambda z: reward(z, eta)
-    return prior, closedloop, anon_rwrd
+    reward_fn = lambda z: reward(z, tempering)
+    return prior, loop, reward_fn

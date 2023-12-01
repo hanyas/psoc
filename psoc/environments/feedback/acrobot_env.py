@@ -11,7 +11,7 @@ from psoc.abstract import Network
 from psoc.abstract import FeedbackPolicy
 from psoc.abstract import FeedbackLoop
 
-from psoc.utils import Tanh
+from psoc.bijector import Tanh
 
 jax.config.update("jax_enable_x64", True)
 
@@ -149,5 +149,5 @@ def create_env(params, eta):
         dynamics, policy
     )
 
-    anon_rwrd = lambda z: reward(z, eta)
-    return prior, closedloop, anon_rwrd
+    reward_fn = lambda z: reward(z, eta)
+    return prior, closedloop, reward_fn

@@ -5,7 +5,7 @@ from jax import numpy as jnp
 from psoc.environments.openloop import pendulum_env as pendulum
 
 from psoc.common import rollout
-from psoc.common import csmc_sampling
+from psoc.sampling import csmc_sampling
 
 import matplotlib.pyplot as plt
 
@@ -14,7 +14,7 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-key = jr.PRNGKey(5121)
+key = jr.PRNGKey(518123121)
 
 nb_steps = 101
 horizon = 20
