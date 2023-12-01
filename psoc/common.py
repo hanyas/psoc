@@ -37,11 +37,11 @@ def batcher(
     states, next_states = create_pairs(samples)
 
     batch_idx = jr.permutation(key, len(states))
-    batch_idx = onp.asarray(batch_idx)
+    # batch_idx = onp.asarray(batch_idx)
 
     # include incomplete batch
     steps_per_epoch = math.ceil(len(states) / batch_size)
-    batch_idx = onp.array_split(batch_idx, steps_per_epoch)
+    batch_idx = jnp.array_split(batch_idx, steps_per_epoch)
 
     # # Skip incomplete batch
     # steps_per_epoch = len(states) // batch_size
@@ -60,9 +60,10 @@ def lower_bound(
     tempering: float,
     environment,
 ):
-    _, closedloop, reward = \
+    _, closedloop, reward_fn = \
         environment.create_env(init_state, parameters, tempering)
-    lls = log_complete_likelihood(states, next_states, closedloop, reward)
+    vmap_ll = jax.vmap(log_complete_likelihood, in_axes=(0, 0, None, None))
+    lls = vmap_ll(states, next_states, closedloop, reward_fn)
     return - jnp.mean(lls)
 
 
@@ -113,8 +114,8 @@ def compute_cost(
     tempering: float,
     environment,
 ):
-    _, _, reward = environment.create_env(init_state, parameters, tempering)
-    return - jnp.mean(jnp.sum(reward(samples), axis=0))
+    _, _, reward_fn = environment.create_env(init_state, parameters, tempering)
+    return - jnp.mean(jnp.sum(reward_fn(samples), axis=0))
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3, -1))
@@ -129,7 +130,7 @@ def csmc_sampling(
     tempering: float,
     environment,
 ):
-    prior, closedloop, reward = \
+    prior, closedloop, reward_fn = \
         environment.create_env(init_state, parameters, tempering)
 
     def body(carry, args):
@@ -142,7 +143,7 @@ def csmc_sampling(
             reference,
             prior,
             closedloop,
-            reward,
+            reward_fn,
         )
         return (key, sample), sample
 
@@ -162,7 +163,7 @@ def smc_sampling(
     tempering: float,
     environment,
 ):
-    prior, closedloop, reward = \
+    prior, closedloop, reward_fn = \
         environment.create_env(init_state, parameters, tempering)
 
     key, sub_key = jr.split(key, 2)
@@ -173,7 +174,7 @@ def smc_sampling(
         nb_samples,
         prior,
         closedloop,
-        reward,
+        reward_fn,
     )
 
     key, sub_key = jr.split(key, 2)
@@ -189,7 +190,7 @@ def rollout(
     tempering: float,
     environment,
 ):
-    prior, closedloop, reward = \
+    prior, closedloop, _ = \
         environment.create_env(init_state, parameters, tempering)
 
     def body(carry, args):
@@ -205,7 +206,6 @@ def rollout(
     return states
 
 
-@partial(jax.vmap, in_axes=(0, 0, None, None))
 def log_complete_likelihood(
     state: jnp.ndarray,
     next_state: jnp.ndarray,
