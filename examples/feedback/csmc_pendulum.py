@@ -18,18 +18,19 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-key = jr.PRNGKey(5121)
+key = jr.PRNGKey(1337)
 
 nb_steps = 101
-nb_particles = 16
-nb_samples = 10
+nb_particles = 64
+nb_samples = 20
 
 init_state = jnp.zeros((3,))
-tempering = 0.1
+tempering = 0.25
 
 nb_iter = 100
-lr = 1e-3
+lr = 5e-4
 batch_size = 32
+
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
@@ -39,22 +40,20 @@ opt_state = create_train_state(
     learning_rate=lr
 )
 
-prior, closedloop, reward = \
+prior, closedloop, reward_fn = \
     pendulum.create_env(init_state, opt_state.params, tempering)
 
 key, sub_key = jr.split(key, 2)
-samples, weights = smc(
+samples, _ = smc(
     sub_key,
     nb_steps,
     int(10 * nb_particles),
-    int(10 * nb_particles),
+    1,
     prior,
     closedloop,
-    reward,
+    reward_fn,
 )
-key, sub_key = jr.split(key, 2)
-idx = jr.choice(sub_key, a=len(samples), p=weights)
-reference = samples[idx, ...]
+reference = samples[0]
 
 # plt.plot(reference)
 # plt.show()
@@ -73,7 +72,7 @@ for i in range(nb_iter):
         opt_state.params,
         tempering,
         pendulum
-    )[5:]
+    )
 
     # maximization step
     loss = 0.0
@@ -99,12 +98,9 @@ for i in range(nb_iter):
     # choose new reference
     reference = samples[-1]
 
-# for n in range(nb_samples):
-#     plt.plot(samples[n, :, :])
-# plt.show()
 
 key, sub_key = jr.split(key, 2)
-rollout = rollout(
+sample = rollout(
     sub_key,
     nb_steps,
     init_state,
@@ -113,5 +109,5 @@ rollout = rollout(
     pendulum,
 )
 
-plt.plot(rollout)
+plt.plot(sample)
 plt.show()

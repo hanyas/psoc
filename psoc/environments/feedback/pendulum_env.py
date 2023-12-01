@@ -51,7 +51,7 @@ dynamics = StochasticDynamics(
     dim=2,
     ode=ode,
     step=0.05,
-    log_std=jnp.log(jnp.array([1e-4, 1e-2]))
+    log_std=jnp.log(jnp.array([1e-2, 1e-2]))
 )
 
 
@@ -66,13 +66,18 @@ network = Network(
     layer_size=[256, 256],
     transform=polar,
     activation=nn.relu,
-    init_log_std=jnp.log(2.5 * jnp.ones((1,))),
+    init_log_std=jnp.log(1.5 * jnp.ones((1,))),
 )
 
 bijector = distrax.Chain([
     distrax.ScalarAffine(0.0, 5.0),
     Tanh()
 ])
+
+# bijector = distrax.Chain([
+#     distrax.ScalarAffine(-5.0, 10.0),
+#     distrax.Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+# ])
 
 
 def create_env(
