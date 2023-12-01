@@ -67,8 +67,7 @@ network = Network(
 )
 
 bijector = distrax.Chain([
-    distrax.ScalarAffine(0.0, 2.5),
-    Tanh()
+    distrax.ScalarAffine(0.0, 1.0),
 ])
 
 
