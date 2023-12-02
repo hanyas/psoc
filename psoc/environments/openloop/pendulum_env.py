@@ -7,11 +7,11 @@ from jax import numpy as jnp
 import distrax
 
 from psoc.abstract import StochasticDynamics
-from psoc.abstract import OrnsteinUhlenbeck
+from psoc.abstract import Gaussian, GaussMarkov
 from psoc.abstract import OpenloopPolicy
 from psoc.abstract import OpenLoop
 
-from psoc.bijector import Tanh
+from psoc.bijector import Tanh, Sigmoid
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
@@ -36,7 +36,7 @@ def reward(state, eta):
         return _q % (2.0 * jnp.pi)
 
     Q = jnp.diag(jnp.array([1e1, 1e-1]))
-    R = jnp.diag(jnp.array([1e-3]))
+    R = jnp.diag(jnp.array([1e-1]))
 
     xw = jnp.hstack((wrap_angle(x), x_dot))
     cost = (xw - g0).T @ Q @ (xw - g0)
@@ -51,21 +51,26 @@ dynamics = StochasticDynamics(
     log_std=jnp.log(1e-2 * jnp.ones((2,)))
 )
 
-module = OrnsteinUhlenbeck(
+module = Gaussian(
     dim=1,
-    step=0.05,
-    init_params=jnp.array([20.0, 125.0]),
+    init_params=jnp.array([0.0, 1.0]),
 )
 
-bijector = distrax.Chain([
-    distrax.ScalarAffine(0.0, 5.0),
-    Tanh(),
-])
+# module = GaussMarkov(
+#     dim=1,
+#     step=0.05,
+#     init_params=jnp.array([20.0, 50.0]),
+# )
 
 # bijector = distrax.Chain([
-#     distrax.ScalarAffine(-5.0, 10.0),
-#     distrax.Sigmoid(), distrax.ScalarAffine(0.0, 0.75),
+#     distrax.ScalarAffine(0.0, 5.0),
+#     Tanh(),
 # ])
+
+bijector = distrax.Chain([
+    distrax.ScalarAffine(-5.0, 10.0),
+    Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+])
 
 
 def create_env(

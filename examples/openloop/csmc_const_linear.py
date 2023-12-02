@@ -5,8 +5,10 @@ from jax import numpy as jnp
 from psoc.environments.openloop import const_linear_env as linear
 
 from psoc.common import rollout
-from psoc.sampling import csmc_sampling
+from psoc.utils import create_train_state
+from psoc.optimization import rao_blackwell_score_optimization
 
+import optax
 import matplotlib.pyplot as plt
 
 jax.config.update("jax_platform_name", "cpu")
@@ -25,10 +27,17 @@ nb_samples = 10
 init_state = jnp.array([1.0, 2.0, 0.0])
 tempering = 0.5
 
+nb_iter = 100
+learning_rate = 1e-1
+
 key, sub_key = jr.split(key, 2)
-parameters = linear.module.init(
-    sub_key, jnp.zeros((2,))
-)["params"]
+opt_state = create_train_state(
+    key=sub_key,
+    module=linear.module,
+    init_data=jnp.zeros((2,)),
+    learning_rate=learning_rate,
+    optimizer=optax.sgd
+)
 
 state = init_state
 
@@ -41,24 +50,25 @@ for t in range(nb_steps):
         sub_key,
         horizon,
         state,
-        parameters,
+        opt_state.params,
         tempering,
         linear,
     )
 
     key, sub_key = jr.split(key, 2)
-    sample = csmc_sampling(
-        sub_key,
-        horizon,
-        nb_particles,
-        nb_samples,
-        reference,
-        state,
-        parameters,
-        tempering,
-        linear
-    )[-1]
-
+    opt_state, sample, _ = \
+        rao_blackwell_score_optimization(
+            sub_key,
+            nb_iter,
+            horizon,
+            nb_particles,
+            nb_samples,
+            reference,
+            state,
+            opt_state,
+            tempering,
+            linear
+        )
     x = sample[0, :2]
     u = sample[1, -1:]
 

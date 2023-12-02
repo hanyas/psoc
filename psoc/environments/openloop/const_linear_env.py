@@ -7,11 +7,11 @@ from jax import numpy as jnp
 import distrax
 
 from psoc.abstract import StochasticDynamics
-from psoc.abstract import OrnsteinUhlenbeck
+from psoc.abstract import Gaussian, GaussMarkov
 from psoc.abstract import OpenloopPolicy
 from psoc.abstract import OpenLoop
 
-from psoc.bijector import Tanh
+from psoc.bijector import Tanh, Sigmoid
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
@@ -49,21 +49,26 @@ dynamics = StochasticDynamics(
     log_std=jnp.log(1e-2 * jnp.ones((2,)))
 )
 
-module = OrnsteinUhlenbeck(
+module = Gaussian(
     dim=1,
-    step=0.1,
-    init_params=jnp.array([25.0, 100.0]),
+    init_params=jnp.array([0.0, 1.0]),
 )
 
-bijector = distrax.Chain([
-    distrax.ScalarAffine(0.0, 2.5),
-    Tanh(),
-])
+# module = GaussMarkov(
+#     dim=1,
+#     step=0.1,
+#     init_params=jnp.array([25.0, 100.0]),
+# )
 
 # bijector = distrax.Chain([
-#     distrax.ScalarAffine(-2.5, 5.0),
-#     distrax.Sigmoid(), distrax.ScalarAffine(0.0, 0.75),
+#     distrax.ScalarAffine(0.0, 2.5),
+#     Tanh(),
 # ])
+
+bijector = distrax.Chain([
+    distrax.ScalarAffine(-2.5, 5.0),
+    Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+])
 
 
 def create_env(
