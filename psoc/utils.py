@@ -2,11 +2,15 @@ import math
 from typing import Dict
 
 import jax
-from jax import numpy as jnp, random as jr
+from jax import numpy as jnp
+from jax import random as jr
 
-import optax
+import numpy as onp
+
 from flax import linen as nn
 from flax.training.train_state import TrainState
+
+import optax
 
 
 def create_pairs(
@@ -23,20 +27,21 @@ def batcher(
     key: jax.Array,
     samples: jnp.ndarray,
     batch_size: int,
+    skip_last: bool = True,
 ):
     states, next_states = create_pairs(samples)
-
     batch_idx = jr.permutation(key, len(states))
     batch_idx = onp.asarray(batch_idx)
 
-    # include incomplete batch
-    steps_per_epoch = math.ceil(len(states) / batch_size)
-    batch_idx = onp.array_split(batch_idx, steps_per_epoch)
-
-    # # Skip incomplete batch
-    # steps_per_epoch = len(states) // batch_size
-    # batch_idx = batch_idx[: steps_per_epoch * batch_size]
-    # batch_idx = batch_idx.reshape((steps_per_epoch, batch_size))
+    if skip_last:
+        # Skip incomplete batch
+        steps_per_epoch = len(states) // batch_size
+        batch_idx = batch_idx[: steps_per_epoch * batch_size]
+        batch_idx = batch_idx.reshape((steps_per_epoch, batch_size))
+    else:
+        # include incomplete batch
+        steps_per_epoch = math.ceil(len(states) / batch_size)
+        batch_idx = onp.array_split(batch_idx, steps_per_epoch)
 
     for idx in batch_idx:
         yield states[idx], next_states[idx]
