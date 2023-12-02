@@ -1,4 +1,5 @@
 from functools import partial
+from typing import Dict
 
 import jax
 from jax import numpy as jnp
@@ -12,8 +13,6 @@ from psoc.abstract import FeedbackPolicy
 from psoc.abstract import FeedbackLoop
 
 from psoc.bijector import Tanh
-
-jax.config.update("jax_enable_x64", True)
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
@@ -106,11 +105,6 @@ def reward(state, eta):
     return - 0.5 * eta * cost
 
 
-prior = distrax.MultivariateNormalDiag(
-    loc=jnp.zeros((5,)),
-    scale_diag=jnp.ones((5,)) * 1e-4
-)
-
 dynamics = StochasticDynamics(
     dim=4,
     ode=ode,
@@ -126,7 +120,7 @@ def polar(x):
     return jnp.hstack([sin_q, cos_q, sin_p, cos_p, x[2], x[3]])
 
 
-network = Network(
+module = Network(
     dim=1,
     layer_size=[512, 512],
     transform=polar,
@@ -140,14 +134,23 @@ bijector = distrax.Chain([
 ])
 
 
-def create_env(params, eta):
-    policy = FeedbackPolicy(
-        network, bijector, params
+def create_env(
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+):
+    prior = distrax.MultivariateNormalDiag(
+        loc=init_state,
+        scale_diag=jnp.ones((5,)) * 1e-4
     )
 
-    closedloop = FeedbackLoop(
+    policy = FeedbackPolicy(
+        module, bijector, parameters
+    )
+
+    loop = FeedbackLoop(
         dynamics, policy
     )
 
-    reward_fn = lambda z: reward(z, eta)
-    return prior, closedloop, reward_fn
+    reward_fn = lambda z: reward(z, tempering)
+    return prior, loop, reward_fn

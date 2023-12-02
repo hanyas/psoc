@@ -14,8 +14,6 @@ from psoc.abstract import FeedbackLoop
 
 from psoc.bijector import Tanh
 
-jax.config.update("jax_enable_x64", True)
-
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
 def ode(x, u):
@@ -119,7 +117,7 @@ def polar(x):
     return jnp.hstack([sin_q, cos_q, sin_p, cos_p, x[2], x[3]])
 
 
-network = Network(
+module = Network(
     dim=2,
     layer_size=[256, 256],
     transform=polar,
@@ -144,7 +142,7 @@ def create_env(
     )
 
     policy = FeedbackPolicy(
-        network, bijector, parameters
+        module, bijector, parameters
     )
 
     loop = FeedbackLoop(

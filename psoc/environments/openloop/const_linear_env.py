@@ -13,8 +13,6 @@ from psoc.abstract import OpenLoop
 
 from psoc.bijector import Tanh
 
-jax.config.update("jax_enable_x64", True)
-
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
 def ode(

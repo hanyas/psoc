@@ -12,10 +12,6 @@ from psoc.abstract import Network
 from psoc.abstract import FeedbackPolicy
 from psoc.abstract import FeedbackLoop
 
-from psoc.bijector import Tanh
-
-jax.config.update("jax_enable_x64", True)
-
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
 def ode(
@@ -58,7 +54,7 @@ def identity(x):
     return x
 
 
-network = Network(
+module = Network(
     dim=1,
     layer_size=[],
     transform=identity,
@@ -82,7 +78,7 @@ def create_env(
     )
 
     policy = FeedbackPolicy(
-        network, bijector, parameters
+        module, bijector, parameters
     )
 
     loop = FeedbackLoop(

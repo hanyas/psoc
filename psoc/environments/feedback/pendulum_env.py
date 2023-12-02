@@ -12,9 +12,7 @@ from psoc.abstract import Network
 from psoc.abstract import FeedbackPolicy
 from psoc.abstract import FeedbackLoop
 
-from psoc.bijector import Tanh
-
-jax.config.update("jax_enable_x64", True)
+from psoc.bijector import Tanh, Sigmoid
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
@@ -61,23 +59,23 @@ def polar(x):
     return jnp.hstack([sin_q, cos_q, x[1]])
 
 
-network = Network(
+module = Network(
     dim=1,
     layer_size=[256, 256],
     transform=polar,
     activation=nn.relu,
-    init_log_std=jnp.log(1.5 * jnp.ones((1,))),
+    init_log_std=jnp.log(1.0 * jnp.ones((1,))),
 )
 
-bijector = distrax.Chain([
-    distrax.ScalarAffine(0.0, 5.0),
-    Tanh()
-])
-
 # bijector = distrax.Chain([
-#     distrax.ScalarAffine(-5.0, 10.0),
-#     distrax.Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+#     distrax.ScalarAffine(0.0, 5.0),
+#     Tanh()
 # ])
+
+bijector = distrax.Chain([
+    distrax.ScalarAffine(-5.0, 10.0),
+    Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+])
 
 
 def create_env(
@@ -91,7 +89,7 @@ def create_env(
     )
 
     policy = FeedbackPolicy(
-        network, bijector, parameters
+        module, bijector, parameters
     )
 
     loop = FeedbackLoop(
