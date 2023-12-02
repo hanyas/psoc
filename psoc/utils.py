@@ -1,5 +1,5 @@
 import math
-from typing import Dict
+from typing import Dict, Callable
 
 import jax
 from jax import numpy as jnp
@@ -51,10 +51,11 @@ def create_train_state(
     key: jax.Array,
     module: nn.Module,
     init_data: jnp.ndarray,
-    learning_rate: float
+    learning_rate: float,
+    optimizer: Callable = optax.adam
 ):
     params = module.init(key, init_data)["params"]
-    tx = optax.adam(learning_rate)
+    tx = optimizer(learning_rate)
     return TrainState.create(
         apply_fn=module.apply,
         params=params,
