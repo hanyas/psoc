@@ -64,7 +64,18 @@ class FeedbackPolicy(NamedTuple):
         return dist.log_prob(u)
 
 
-class OrnsteinUhlenbeck(nn.Module):
+class Gaussian(nn.Module):
+    dim: int
+    init_params: jnp.ndarray
+
+    @nn.compact
+    def __call__(self, u):
+        loc = self.param('loc', lambda rng, shape: self.init_params[0], 1)
+        scale = self.param('scale', lambda rng, shape: self.init_params[1], 1)
+        return loc * jnp.ones_like(u), scale * jnp.ones_like(u)
+
+
+class GaussMarkov(nn.Module):
     dim: int
     step: int
     init_params: jnp.ndarray
@@ -75,14 +86,14 @@ class OrnsteinUhlenbeck(nn.Module):
         q = self.param('q', lambda rng, shape: self.init_params[1], 1)
 
         sigma_sqr = q / (2.0 * l) * (1.0 - jnp.exp(-2.0 * l * self.step))
-        return (
-            jnp.exp(- l * self.step) * u,
-            q / (2.0 * l) * (1.0 - jnp.exp(-2.0 * l * self.step))
-        )
+
+        loc = jnp.exp(- l * self.step) * u
+        scale = jnp.sqrt(sigma_sqr)
+        return loc, scale
 
 
 class OpenloopPolicy(NamedTuple):
-    module: OrnsteinUhlenbeck
+    module: Union[Gaussian, GaussMarkov]
     bijector: distrax.Chain
     params: Dict
 
@@ -97,11 +108,12 @@ class OpenloopPolicy(NamedTuple):
 
     def distribution(self, u):
         _params = constrain(self.params)
-        un, sigma_sqr = self.module.apply({'params': _params}, u)
+        loc, scale = self.module.apply({'params': _params}, u)
 
         raw_dist = distrax.MultivariateNormalDiag(
-            loc=un, scale_diag=jnp.atleast_1d(jnp.sqrt(sigma_sqr))
+            loc=loc, scale_diag=jnp.atleast_1d(scale)
         )
+
         squashed_dist = distrax.Transformed(
             distribution=raw_dist,
             bijector=distrax.Block(self.bijector, ndims=1)
