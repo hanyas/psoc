@@ -4,7 +4,7 @@ from jax import numpy as jnp
 
 from psoc.environments.feedback import cartpole_env as cartpole
 from psoc.common import initialize, rollout
-from psoc.experiments import rao_blackwell_feedback_experiment
+from psoc.optimization import rao_blackwell_score_optimization
 
 import matplotlib.pyplot as plt
 
@@ -32,7 +32,7 @@ opt_state, reference = initialize(
 )
 
 key, sub_key = jr.split(key, 2)
-opt_state, _ = rao_blackwell_feedback_experiment(
+opt_state, _ = rao_blackwell_score_optimization(
     sub_key,
     nb_iter,
     nb_steps,

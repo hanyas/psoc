@@ -4,7 +4,7 @@ from jax import numpy as jnp
 
 from psoc.environments.feedback import const_linear_env as linear
 from psoc.common import initialize, rollout
-from psoc.experiments import feedback_experiment
+from psoc.optimization import score_optimization
 
 import matplotlib.pyplot as plt
 
@@ -39,7 +39,7 @@ opt_state, reference = initialize(
 )
 
 key, sub_key = jr.split(key, 2)
-opt_state = feedback_experiment(
+opt_state = score_optimization(
     sub_key,
     nb_iter,
     nb_steps,
