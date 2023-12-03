@@ -34,7 +34,7 @@ key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
     module=cartpole.module,
-    init_data=jnp.zeros((4,)),
+    init_data=jnp.zeros((1,)),
     learning_rate=learning_rate,
     optimizer=optax.sgd
 )

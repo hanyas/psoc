@@ -102,6 +102,7 @@ def reward(state, eta):
     cost += u.T @ R @ u
     return - 0.5 * eta * cost
 
+
 dynamics = StochasticDynamics(
     dim=4,
     ode=ode,

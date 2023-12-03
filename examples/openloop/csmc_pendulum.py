@@ -16,7 +16,7 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-key = jr.PRNGKey(8)
+key = jr.PRNGKey(11)
 
 nb_steps = 101
 horizon = 20
@@ -34,7 +34,7 @@ key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
     module=pendulum.module,
-    init_data=jnp.zeros((2,)),
+    init_data=jnp.zeros((1,)),
     learning_rate=learning_rate,
     optimizer=optax.sgd
 )

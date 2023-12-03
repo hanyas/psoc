@@ -71,24 +71,30 @@ dynamics = StochasticDynamics(
 
 module = Gaussian(
     dim=1,
-    init_params=jnp.array([0.0, 1.0]),
+    init_params={
+        'loc': jnp.zeros((1,)),
+        'scale': jnp.ones((1,))
+    }
 )
 
 # module = GaussMarkov(
 #     dim=1,
 #     step=0.05,
-#     init_params=jnp.array([20.0, 50.0]),
+#     init_params={
+#         'l': 25.0 * jnp.ones((1,)),
+#         'q': 50.0 * jnp.ones((1,))
+#     }
 # )
 
-# bijector = distrax.Chain([
-#     distrax.ScalarAffine(0.0, 50.0),
-#     Tanh()
-# ])
-
 bijector = distrax.Chain([
-    distrax.ScalarAffine(-50.0, 100.0),
-    Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+    distrax.ScalarAffine(0.0, 50.0),
+    Tanh()
 ])
+
+# bijector = distrax.Chain([
+#     distrax.ScalarAffine(-50.0, 100.0),
+#     Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+# ])
 
 
 def create_env(
