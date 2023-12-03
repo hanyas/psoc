@@ -70,9 +70,9 @@ class Gaussian(nn.Module):
 
     @nn.compact
     def __call__(self, u):
-        loc = self.param('loc', lambda rng, shape: self.init_params[0], 1)
-        scale = self.param('scale', lambda rng, shape: self.init_params[1], 1)
-        return loc * jnp.ones_like(u), scale * jnp.ones_like(u)
+        loc = self.param('loc', lambda rng, shape: self.init_params['loc'], 1)
+        scale = self.param('scale', lambda rng, shape: self.init_params['scale'], 1)
+        return jnp.broadcast_to(loc, u.shape), jnp.broadcast_to(scale, u.shape)
 
 
 class GaussMarkov(nn.Module):
@@ -82,8 +82,8 @@ class GaussMarkov(nn.Module):
 
     @nn.compact
     def __call__(self, u):
-        l = self.param('l', lambda rng, shape: self.init_params[0], 1)
-        q = self.param('q', lambda rng, shape: self.init_params[1], 1)
+        l = self.param('l', lambda rng, shape: self.init_params['l'], 1)
+        q = self.param('q', lambda rng, shape: self.init_params['q'], 1)
 
         sigma_sqr = q / (2.0 * l) * (1.0 - jnp.exp(-2.0 * l * self.step))
 
@@ -187,6 +187,7 @@ class FeedbackLoop(NamedTuple):
     def mean(self, z):
         x = jnp.atleast_1d(z[:self.xdim])
         u = jnp.atleast_1d(z[-self.udim:])
+
         xn = self.dynamics.mean(x, u)
         un = self.policy.mean(xn)
         return jnp.hstack((xn, un))
@@ -235,36 +236,37 @@ class OpenLoop(NamedTuple):
 
     def mean(self, z):
         x = jnp.atleast_1d(z[:self.xdim])
-        u = jnp.atleast_1d(z[-self.udim:])
+        up = jnp.atleast_1d(z[-self.udim:])
+
+        u = self.policy.mean(up)
         xn = self.dynamics.mean(x, u)
-        un = self.policy.mean(u)
-        return jnp.hstack((xn, un))
+        return jnp.hstack((xn, u))
 
     def sample(self, key, z):
         u_key, x_key = jr.split(key, 2)
 
         x = jnp.atleast_1d(z[..., :self.xdim])
-        u = jnp.atleast_1d(z[..., -self.udim:])
+        up = jnp.atleast_1d(z[..., -self.udim:])
 
+        u = self.policy.sample(u_key, up)
         xn = self.dynamics.sample(x_key, x, u)
-        un = self.policy.sample(u_key, u)
-        return jnp.column_stack((xn, un))
+        return jnp.column_stack((xn, u))
 
     def forward(self, key, z):
         x = jnp.atleast_1d(z[:self.xdim])
-        u = jnp.atleast_1d(z[-self.udim:])
+        up = jnp.atleast_1d(z[-self.udim:])
 
+        u = self.policy.mean(up)
         xn = self.dynamics.sample(key, x, u)
-        un = self.policy.mean(u)
-        return jnp.hstack((xn, un))
+        return jnp.hstack((xn, u))
 
     def logpdf(self, z, zn):
         x = jnp.atleast_1d(z[:self.xdim])
-        u = jnp.atleast_1d(z[-self.udim:])
+        up = jnp.atleast_1d(z[-self.udim:])
 
         xn = jnp.atleast_1d(zn[:self.xdim])
-        un = jnp.atleast_1d(zn[-self.udim:])
+        u = jnp.atleast_1d(zn[-self.udim:])
 
-        ll = self.dynamics.logpdf(x, u, xn)
-        ll += self.policy.logpdf(u, un)
+        ll = self.policy.logpdf(up, u)
+        ll += self.dynamics.logpdf(x, u, xn)
         return ll
