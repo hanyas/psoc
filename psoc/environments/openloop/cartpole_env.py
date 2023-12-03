@@ -5,7 +5,6 @@ import jax
 from jax import numpy as jnp
 
 import distrax
-from flax import linen as nn
 
 from psoc.abstract import StochasticDynamics
 from psoc.abstract import Gaussian, GaussMarkov
@@ -13,6 +12,8 @@ from psoc.abstract import OpenloopPolicy
 from psoc.abstract import OpenLoop
 
 from psoc.bijector import Tanh, Sigmoid
+
+jax.config.update("jax_enable_x64", True)
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')

@@ -12,6 +12,8 @@ from psoc.abstract import Network
 from psoc.abstract import FeedbackPolicy
 from psoc.abstract import FeedbackLoop
 
+jax.config.update("jax_enable_x64", True)
+
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
 def ode(
