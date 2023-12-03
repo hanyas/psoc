@@ -32,7 +32,7 @@ opt_state, reference = initialize(
 )
 
 key, sub_key = jr.split(key, 2)
-opt_state, _ = rao_blackwell_score_optimization(
+opt_state = rao_blackwell_score_optimization(
     sub_key,
     nb_iter,
     nb_steps,
@@ -43,7 +43,7 @@ opt_state, _ = rao_blackwell_score_optimization(
     opt_state,
     tempering,
     cartpole
-)
+)[0]
 
 key, sub_key = jr.split(key, 2)
 sample = rollout(

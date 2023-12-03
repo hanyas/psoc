@@ -14,7 +14,7 @@ from psoc.abstract import FeedbackLoop
 
 from psoc.bijector import Tanh, Sigmoid
 
-jax.config.update("jax_enable_x64", True)
+# jax.config.update("jax_enable_x64", True)
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')

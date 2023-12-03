@@ -135,6 +135,7 @@ def compute_cost(
     return - jnp.mean(jnp.sum(reward_fn(samples), axis=0))
 
 
+@partial(jax.jit, static_argnums=(1, -1))
 def rollout(
     key: jax.Array,
     nb_steps: int,

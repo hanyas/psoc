@@ -27,7 +27,7 @@ def batcher(
     key: jax.Array,
     samples: jnp.ndarray,
     batch_size: int,
-    skip_last: bool = True,
+    skip_last: bool = False,
 ):
     states, next_states = create_pairs(samples)
     batch_idx = jr.permutation(key, len(states))
