@@ -20,11 +20,16 @@ class Network(nn.Module):
     def __call__(self, x):
         y = self.transform(x)
         for _layer_size in self.layer_size:
-            y = self.activation(nn.Dense(_layer_size)(y))
+            y = self.activation(
+                nn.Dense(
+                    _layer_size,
+                    kernel_init=nn.initializers.he_uniform(),
+                )(y)
+            )
         u = nn.Dense(self.dim)(y)
 
         log_std = \
-            self.param('log_std', self.log_std_init, 1)
+            self.param('log_std', self.log_std_init, self.dim)
 
         return u
 
@@ -86,7 +91,8 @@ class TimeVariantGaussian(nn.Module):
     def __call__(self, u, k):
         loc = self.param('loc', self.loc_init, (self.nb_steps, self.dim))
         scale = self.param('scale', self.scale_init, (self.nb_steps, self.dim))
-        return jnp.broadcast_to(loc[k, :], u.shape), jnp.broadcast_to(scale[k, :], u.shape)
+        return jnp.broadcast_to(loc[k, :], u.shape), \
+            jnp.broadcast_to(scale[k, :], u.shape)
 
 
 class GaussMarkov(nn.Module):
