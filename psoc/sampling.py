@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Dict
+from typing import Dict, Callable
 
 import jax
 from jax import numpy as jnp
@@ -18,10 +18,10 @@ def csmc_sampling(
     init_state: jnp.ndarray,
     parameters: Dict,
     tempering: float,
-    environment,
+    make_env: Callable
 ):
     prior, loop, reward_fn = \
-        environment.create_env(init_state, parameters, tempering)
+        make_env(init_state, parameters, tempering)
 
     def body(carry, args):
         key, reference = carry
@@ -51,10 +51,10 @@ def smc_sampling(
     init_state: jnp.ndarray,
     parameters: Dict,
     tempering: float,
-    environment,
+    make_env: Callable
 ):
     prior, loop, reward_fn = \
-        environment.create_env(init_state, parameters, tempering)
+        make_env(init_state, parameters, tempering)
 
     key, sub_key = jr.split(key, 2)
     samples = smc(

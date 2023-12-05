@@ -26,7 +26,7 @@ def score_optimization(
     opt_state: TrainState,
     tempering: float,
     batch_size: int,
-    environment
+    make_env: Callable
 ):
     print_func = lambda z, *_: print(
         f"\riter: {z[0]}, loss: {z[1]:.4f}", end="\n"
@@ -45,7 +45,7 @@ def score_optimization(
             init_state,
             opt_state.params,
             tempering,
-            environment
+            make_env
         )
         reference = samples[-1]
 
@@ -60,7 +60,7 @@ def score_optimization(
                 init_state,
                 opt_state,
                 tempering,
-                environment
+                make_env
             )
             loss += batch_loss
 
@@ -80,7 +80,7 @@ def rao_blackwell_score_optimization(
     init_state: jnp.ndarray,
     opt_state: TrainState,
     tempering: float,
-    environment: Any,
+    make_env: Callable,
 ):
     print_func = lambda z, *_: print(
         f"\riter: {z[0]}, loss: {z[1]:.4f}", end="\n"
@@ -99,7 +99,7 @@ def rao_blackwell_score_optimization(
             init_state,
             opt_state.params,
             tempering,
-            environment,
+            make_env,
         )
         opt_state = opt_state.apply_gradients(grads=score)
 

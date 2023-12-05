@@ -9,41 +9,7 @@ from jax import random as jr
 from flax.training.train_state import TrainState
 
 from psoc.abstract import OpenLoop, FeedbackLoop
-from psoc.sampling import smc_sampling
 from psoc.algorithms import rao_blackwell_csmc
-from psoc.utils import create_train_state
-
-
-def initialize(
-    key: jax.Array,
-    nb_steps: int,
-    nb_particles: int,
-    init_state: jnp.ndarray,
-    tempering: float,
-    input_dim: int,
-    learning_rate: float,
-    environment: Any
-):
-    key, sub_key = jr.split(key, 2)
-    opt_state = create_train_state(
-        key=sub_key,
-        module=environment.module,
-        init_data=jnp.zeros((input_dim,)),
-        learning_rate=learning_rate
-    )
-
-    key, sub_key = jr.split(key, 2)
-    reference = smc_sampling(
-        sub_key,
-        nb_steps,
-        int(10 * nb_particles),
-        1,
-        init_state,
-        opt_state.params,
-        tempering,
-        environment
-    )[0]
-    return opt_state, reference
 
 
 def log_complete_likelihood(
@@ -64,13 +30,13 @@ def maximization(
     init_state: jnp.ndarray,
     opt_state: TrainState,
     tempering: float,
-    environment: Any
+    make_env: Callable
 ):
     vmap_ll = jax.vmap(log_complete_likelihood, in_axes=(0, 0, None, None))
 
     def loss_fn(params):
         _, loop, reward_fn = \
-            environment.create_env(init_state, params, tempering)
+            make_env(init_state, params, tempering)
         lls = vmap_ll(states, next_states, loop, reward_fn)
         return - 1.0 * jnp.mean(lls)
 
