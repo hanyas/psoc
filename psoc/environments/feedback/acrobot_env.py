@@ -1,20 +1,6 @@
 from functools import partial
-from typing import Dict
 
-import jax
 from jax import numpy as jnp
-
-import distrax
-from flax import linen as nn
-
-from psoc.abstract import StochasticDynamics
-from psoc.abstract import Network
-from psoc.abstract import FeedbackPolicy
-from psoc.abstract import FeedbackLoop
-
-from psoc.bijector import Tanh
-
-# jax.config.update("jax_enable_x64", True)
 
 
 @partial(jnp.vectorize, signature='(k),(h)->(k)')
@@ -105,54 +91,3 @@ def reward(state, eta):
     cost = (_state - goal).T @ Q @ (_state - goal)
     cost += u.T @ R @ u
     return - 0.5 * eta * cost
-
-
-dynamics = StochasticDynamics(
-    dim=4,
-    ode=ode,
-    step=0.05,
-    log_std=jnp.log(jnp.array([1e-4, 1e-4, 1e-2, 1e-2]))
-)
-
-
-@partial(jnp.vectorize, signature='(k)->(h)')
-def polar(x):
-    sin_q, cos_q = jnp.sin(x[0]), jnp.cos(x[0])
-    sin_p, cos_p = jnp.sin(x[1]), jnp.cos(x[1])
-    return jnp.hstack([sin_q, cos_q, sin_p, cos_p, x[2], x[3]])
-
-
-module = Network(
-    dim=1,
-    layer_size=[512, 512],
-    transform=polar,
-    activation=nn.relu,
-    init_log_std=jnp.log(2.5 * jnp.ones((1,))),
-)
-
-bijector = distrax.Chain([
-    distrax.ScalarAffine(0.0, 50.0),
-    Tanh()
-])
-
-
-def create_env(
-    init_state: jnp.ndarray,
-    parameters: Dict,
-    tempering: float,
-):
-    prior = distrax.MultivariateNormalDiag(
-        loc=init_state,
-        scale_diag=jnp.ones((5,)) * 1e-4
-    )
-
-    policy = FeedbackPolicy(
-        module, bijector, parameters
-    )
-
-    loop = FeedbackLoop(
-        dynamics, policy
-    )
-
-    reward_fn = lambda z: reward(z, tempering)
-    return prior, loop, reward_fn
