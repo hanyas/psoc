@@ -83,19 +83,19 @@ def make_env(
     return prior_dist, loop_obj, reward_fn
 
 
-key = jr.PRNGKey(5789)
+key = jr.PRNGKey(6)
 
-nb_steps = 101
+nb_steps = 75
 horizon = 35
 
-nb_particles = 128
-nb_samples = 128
+nb_particles = 64
+nb_samples = 64
 
 init_state = jnp.zeros((6,))
 tempering = 5e-3
 
 nb_iter = 100
-learning_rate = 1e-1
+learning_rate = 5e-1
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(

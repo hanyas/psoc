@@ -63,7 +63,7 @@ def make_env(
 key = jr.PRNGKey(12)
 
 nb_steps = 101
-horizon = 50
+horizon = 35
 
 nb_particles = 64
 
