@@ -1,4 +1,5 @@
 from functools import partial
+from typing import Callable, Any
 
 import jax
 from flax.training.train_state import TrainState
@@ -79,7 +80,7 @@ def rao_blackwell_score_optimization(
     init_state: jnp.ndarray,
     opt_state: TrainState,
     tempering: float,
-    environment
+    environment: Any,
 ):
     print_func = lambda z, *_: print(
         f"\riter: {z[0]}, loss: {z[1]:.4f}", end="\n"
@@ -98,7 +99,7 @@ def rao_blackwell_score_optimization(
             init_state,
             opt_state.params,
             tempering,
-            environment
+            environment,
         )
         opt_state = opt_state.apply_gradients(grads=score)
 

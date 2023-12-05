@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Union
+from typing import Callable, Dict, Union, Any
 from functools import partial
 
 import jax
@@ -22,7 +22,7 @@ def initialize(
     tempering: float,
     input_dim: int,
     learning_rate: float,
-    environment,
+    environment: Any
 ):
     key, sub_key = jr.split(key, 2)
     opt_state = create_train_state(
@@ -64,7 +64,7 @@ def maximization(
     init_state: jnp.ndarray,
     opt_state: TrainState,
     tempering: float,
-    environment,
+    environment: Any
 ):
     vmap_ll = jax.vmap(log_complete_likelihood, in_axes=(0, 0, None, None))
 
@@ -88,23 +88,21 @@ def compute_score(
     init_state: jnp.ndarray,
     parameters: Dict,
     tempering: float,
-    environment,
+    make_env: Callable,
 ):
     def loss_fn(
         state: jnp.ndarray,
         next_state: jnp.ndarray,
-        parameters: Dict,
+        _parameters: Dict,
     ):
-        _, loop, reward_fn = \
-            environment.create_env(init_state, parameters, tempering)
+        _, loop, reward_fn = make_env(init_state, _parameters, tempering)
         loss = log_complete_likelihood(state, next_state, loop, reward_fn)
         return - 1.0 * loss
 
     loss_fn_ = lambda x, xn, p: loss_fn(x, xn, p)
     score_fn_ = lambda x, xn, p: jax.grad(loss_fn, 2)(x, xn, p)
 
-    prior, loop, reward_fn = \
-        environment.create_env(init_state, parameters, tempering)
+    prior, loop, reward_fn = make_env(init_state, parameters, tempering)
 
     key, sub_key = jr.split(key, 2)
     reference, loss, score = rao_blackwell_csmc(
@@ -128,10 +126,10 @@ def compute_cost(
     init_state: jnp.ndarray,
     parameters: Dict,
     tempering: float,
-    environment,
+    make_env: Callable
 ):
     _, _, reward_fn = \
-        environment.create_env(init_state, parameters, tempering)
+        make_env(init_state, parameters, tempering)
     return - jnp.mean(jnp.sum(reward_fn(samples), axis=0))
 
 
@@ -142,10 +140,10 @@ def rollout(
     init_state: jnp.ndarray,
     parameters: Dict,
     tempering: float,
-    environment,
+    make_env: Callable,
 ):
     prior, loop, _ = \
-        environment.create_env(init_state, parameters, tempering)
+        make_env(init_state, parameters, tempering)
 
     def body(carry, args):
         key, prev_state = carry
