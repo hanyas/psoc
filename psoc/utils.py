@@ -63,5 +63,9 @@ def create_train_state(
     )
 
 
-def constrain(params: Dict):
+def positivity_constraint(params: Dict):
     return jax.tree_map(lambda _x: jnp.log1p(jnp.exp(_x)), params)
+
+
+def identity_constraint(params: Dict):
+    return jax.tree_map(lambda _x: _x, params)
