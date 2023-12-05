@@ -25,7 +25,7 @@ def reward(state, eta):
         return _q % (2.0 * jnp.pi)
 
     Q = jnp.diag(jnp.array([1e1, 1e-1]))
-    R = jnp.diag(jnp.array([1e-1]))
+    R = jnp.diag(jnp.array([1e-3]))
 
     xw = jnp.hstack((wrap_angle(x), x_dot))
     cost = (xw - g0).T @ Q @ (xw - g0)
