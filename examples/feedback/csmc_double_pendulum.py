@@ -1,10 +1,25 @@
+from typing import Dict
+from functools import partial
+
 import jax
 from jax import random as jr
 from jax import numpy as jnp
 
-from psoc.environments.feedback import double_pendulum_env as double_pendulum
-from psoc.common import initialize, rollout
+import distrax
+from flax import linen as nn
+
+from psoc.abstract import StochasticDynamics
+from psoc.abstract import Network
+from psoc.abstract import FeedbackPolicyWithSquashing
+from psoc.abstract import FeedbackLoop
+from psoc.bijector import Tanh, Sigmoid
+
+from psoc.common import rollout
+from psoc.sampling import smc_sampling
+from psoc.utils import create_train_state
 from psoc.optimization import score_optimization
+
+from psoc.environments.feedback import double_pendulum_env as double_pendulum
 
 import matplotlib.pyplot as plt
 
@@ -13,7 +28,57 @@ jax.config.update("jax_enable_x64", True)
 # jax.config.update("jax_disable_jit", True)
 
 
-key = jr.PRNGKey(23123)
+dynamics = StochasticDynamics(
+    dim=4,
+    ode=double_pendulum.ode,
+    step=0.05,
+    stddev=1e-2 * jnp.ones((4,))
+)
+
+
+@partial(jnp.vectorize, signature='(k)->(h)')
+def polar(x):
+    sin_q, cos_q = jnp.sin(x[0]), jnp.cos(x[0])
+    sin_p, cos_p = jnp.sin(x[1]), jnp.cos(x[1])
+    return jnp.hstack([sin_q, cos_q, sin_p, cos_p, x[2], x[3]])
+
+
+proposal = Network(
+    dim=2,
+    layer_size=[256, 256],
+    transform=polar,
+    activation=nn.relu,
+)
+
+bijector = distrax.Chain([
+    distrax.ScalarAffine(0.0, 25.0),
+    Tanh()
+])
+
+
+def make_env(
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+):
+    prior_dist = distrax.MultivariateNormalDiag(
+        loc=init_state,
+        scale_diag=jnp.ones((6,)) * 1e-4
+    )
+
+    policy = FeedbackPolicyWithSquashing(
+        proposal, bijector, parameters
+    )
+
+    loop_obj = FeedbackLoop(
+        dynamics, policy
+    )
+
+    reward_fn = lambda z: double_pendulum.reward(z, tempering)
+    return prior_dist, loop_obj, reward_fn
+
+
+key = jr.PRNGKey(1)
 
 nb_steps = 101
 nb_particles = 64
@@ -27,16 +92,24 @@ learning_rate = 1e-4
 batch_size = 32
 
 key, sub_key = jr.split(key, 2)
-opt_state, reference = initialize(
+opt_state = create_train_state(
+    key=sub_key,
+    module=proposal,
+    init_data=jnp.zeros((4,)),
+    learning_rate=learning_rate
+)
+
+key, sub_key = jr.split(key, 2)
+reference = smc_sampling(
     sub_key,
     nb_steps,
-    nb_particles,
+    int(10 * nb_particles),
+    1,
     init_state,
+    opt_state.params,
     tempering,
-    4,
-    learning_rate,
-    double_pendulum
-)
+    make_env
+)[0]
 
 key, sub_key = jr.split(key, 2)
 opt_state = score_optimization(
@@ -50,7 +123,7 @@ opt_state = score_optimization(
     opt_state,
     tempering,
     batch_size,
-    double_pendulum
+    make_env
 )
 
 key, sub_key = jr.split(key, 2)
@@ -60,7 +133,7 @@ sample = rollout(
     init_state,
     opt_state.params,
     tempering,
-    double_pendulum,
+    make_env,
 )
 
 plt.plot(sample[:, :-2])
