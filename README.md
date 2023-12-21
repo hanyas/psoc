@@ -1,4 +1,4 @@
-# Risk-Senstive Stochastic Optimal Control as Rao-Blackwellized Markovian Score Climbing
+# Risk-Sensitive Stochastic Optimal Control as Rao-Blackwellized Markovian Score Climbing
 
 Implements a policy optimization technique via Markovian score climbing
 
