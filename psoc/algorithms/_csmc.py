@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 
 import distrax
 
-from psoc.abstract import OpenLoop, FeedbackLoop
+from psoc.abstract import FeedbackLoop
 
 
 def _backward_tracing(
@@ -43,7 +43,7 @@ def _backward_sampling(
     key: jax.Array,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
 ):
     nb_particles = filter_particles.shape[1]
     trans_logpdf = jax.vmap(transition_model.logpdf, in_axes=(0, None))
@@ -83,7 +83,7 @@ def _rao_blackwell_backward_sampling(
     nb_samples: int,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
 ):
     nb_steps = filter_particles.shape[0] - 1
     nb_particles = filter_particles.shape[1]
@@ -135,7 +135,7 @@ def _rao_blackwell_backward_sampling_with_score(
     nb_samples: int,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     loss_fn: Callable,
     score_fn: Callable,
     loss_fn_params: Dict,
@@ -203,7 +203,7 @@ def _abstract_csmc(
     nb_particles: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
     backward_sampling_fn: Callable,
 ):
@@ -269,7 +269,7 @@ def csmc(
     nb_particles: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
 ):
     key, sub_key = jr.split(key, 2)
@@ -292,7 +292,7 @@ def rao_blackwell_csmc(
     nb_samples: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
 ):
     def _backward_sampling_fn(
@@ -329,7 +329,7 @@ def rao_blackwell_csmc_with_score(
     nb_samples: int,
     reference: jnp.ndarray,
     prior: distrax.Distribution,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
     loss_fn: Callable,
     score_fn: Callable,

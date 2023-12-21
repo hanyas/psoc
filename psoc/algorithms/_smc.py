@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 
 import distrax
 
-from psoc.abstract import OpenLoop, FeedbackLoop
+from psoc.abstract import FeedbackLoop
 
 
 def _backward_tracing(
@@ -83,7 +83,7 @@ def _batch_backward_sampling(
     nb_samples: int,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
 ):
     nb_steps = filter_particles.shape[0] - 1
     nb_particles = filter_particles.shape[1]
@@ -136,7 +136,7 @@ def _batch_backward_sampling_with_score(
     nb_samples: int,
     filter_particles: jnp.ndarray,
     filter_weights: jnp.ndarray,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     loss_fn: Callable,
     score_fn: Callable,
     loss_fn_params: Dict,
@@ -203,7 +203,7 @@ def _abstract_smc(
     nb_steps: int,
     nb_particles: int,
     prior: distrax.Distribution,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
     backward_sampling_fn: Callable,
 ):
@@ -265,7 +265,7 @@ def smc(
     nb_particles: int,
     nb_samples: int,
     prior: distrax.Distribution,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
 ):
     def _backward_sampling_fn(
@@ -300,7 +300,7 @@ def smc_with_score(
     nb_particles: int,
     nb_samples: int,
     prior: distrax.Distribution,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
     loss_fn: Callable,
     score_fn: Callable,

@@ -6,8 +6,6 @@ from jax import numpy as jnp
 import distrax
 from flax import linen as nn
 
-from psoc.utils import identity_constraint
-
 
 class Network(nn.Module):
     dim: int
@@ -77,121 +75,6 @@ class Gaussian(nn.Module):
         loc = self.param('loc', self.init_loc, self.dim)
         scale = self.param('scale', self.init_scale, self.dim)
         return jnp.broadcast_to(loc, u.shape), jnp.broadcast_to(scale, u.shape)
-
-
-class TimeVariantGaussian(nn.Module):
-    dim: int
-    nb_steps: int
-    init_loc: Callable = nn.initializers.zeros
-    init_scale: Callable = nn.initializers.ones
-
-    @nn.compact
-    def __call__(self, u, k):
-        loc = self.param('loc', self.init_loc, (self.nb_steps, self.dim))
-        scale = self.param('scale', self.init_scale, (self.nb_steps, self.dim))
-        return jnp.broadcast_to(loc[k, :], u.shape), \
-            jnp.broadcast_to(scale[k, :], u.shape)
-
-
-class GaussMarkov(nn.Module):
-    dim: int
-    step: int
-    inti_inv_length: Callable = nn.initializers.ones
-    init_diffusion: Callable = nn.initializers.ones
-
-    @nn.compact
-    def __call__(self, u):
-        inv_length = self.param('inv_length', self.inti_inv_length, self.dim)
-        diffusion = self.param('diffusion', self.init_diffusion, self.dim)
-
-        sigma_sqr = diffusion / (2.0 * inv_length) \
-                    * (1.0 - jnp.exp(-2.0 * inv_length * self.step))
-
-        loc = jnp.exp(- inv_length * self.step) * u
-        scale = jnp.sqrt(sigma_sqr)
-        return loc, scale
-
-
-class OpenloopPolicyWithClipping(NamedTuple):
-    proposal: Gaussian
-    bijector: distrax.Chain
-    params: Dict
-    constraint: Callable = identity_constraint
-
-    @property
-    def dim(self):
-        return self.proposal.dim
-
-    def mean(self, u):
-        _params = self.constraint(self.params)
-        un, _ = self.proposal.apply({'params': _params}, u)
-        return self.bijector.forward(un)
-
-    def distribution(self, u):
-        _params = self.constraint(self.params)
-        loc, scale = self.proposal.apply({'params': _params}, u)
-
-        clipped_dist = distrax.ClippedNormal(
-            loc=loc,
-            scale=scale,
-            minimum=-1.0,
-            maximum=1.0
-        )
-
-        scaled_dist = distrax.Transformed(
-            distribution=distrax.Independent(
-                clipped_dist,
-                reinterpreted_batch_ndims=1
-            ),
-            bijector=distrax.Block(self.bijector, ndims=1)
-        )
-        return scaled_dist
-
-    def sample(self, key, u):
-        dist = self.distribution(u)
-        return dist.sample(seed=key)
-
-    def logpdf(self, u, un):
-        dist = self.distribution(u)
-        return dist.log_prob(un)
-
-
-class OpenloopPolicyWithSquashing(NamedTuple):
-    proposal: Union[Gaussian, GaussMarkov]
-    bijector: distrax.Chain
-    params: Dict
-    constraint: Callable = identity_constraint
-
-    @property
-    def dim(self):
-        return self.proposal.dim
-
-    def mean(self, u):
-        _params = self.constraint(self.params)
-        un, _ = self.proposal.apply({'params': _params}, u)
-        return self.bijector.forward(un)
-
-    def distribution(self, u):
-        _params = self.constraint(self.params)
-        loc, scale = self.proposal.apply({'params': _params}, u)
-
-        raw_dist = distrax.MultivariateNormalDiag(
-            loc=loc, scale_diag=jnp.atleast_1d(scale)
-        )
-
-        squashed_dist = distrax.Transformed(
-            distribution=raw_dist,
-            bijector=distrax.Block(self.bijector, ndims=1)
-        )
-        return squashed_dist
-
-    def sample(self, key, u):
-        dist = self.distribution(u)
-        return dist.sample(seed=key)
-
-    def logpdf(self, u, un):
-        dist = self.distribution(u)
-        return dist.log_prob(un)
 
 
 class StochasticDynamics(NamedTuple):
@@ -287,57 +170,4 @@ class FeedbackLoop(NamedTuple):
 
         ll = self.dynamics.logpdf(x, u, xn)
         ll += self.policy.logpdf(xn, un)
-        return ll
-
-
-class OpenLoop(NamedTuple):
-    dynamics: StochasticDynamics
-    policy: Union[
-        OpenloopPolicyWithSquashing,
-        OpenloopPolicyWithClipping
-    ]
-
-    @property
-    def xdim(self):
-        return self.dynamics.dim
-
-    @property
-    def udim(self):
-        return self.policy.dim
-
-    def mean(self, z):
-        x = jnp.atleast_1d(z[:self.xdim])
-        up = jnp.atleast_1d(z[-self.udim:])
-
-        u = self.policy.mean(up)
-        xn = self.dynamics.mean(x, u)
-        return jnp.hstack((xn, u))
-
-    def sample(self, key, z):
-        u_key, x_key = jr.split(key, 2)
-
-        x = jnp.atleast_1d(z[..., :self.xdim])
-        up = jnp.atleast_1d(z[..., -self.udim:])
-
-        u = self.policy.sample(u_key, up)
-        xn = self.dynamics.sample(x_key, x, u)
-        return jnp.column_stack((xn, u))
-
-    def forward(self, key, z):
-        x = jnp.atleast_1d(z[:self.xdim])
-        up = jnp.atleast_1d(z[-self.udim:])
-
-        u = self.policy.mean(up)
-        xn = self.dynamics.sample(key, x, u)
-        return jnp.hstack((xn, u))
-
-    def logpdf(self, z, zn):
-        x = jnp.atleast_1d(z[:self.xdim])
-        up = jnp.atleast_1d(z[-self.udim:])
-
-        xn = jnp.atleast_1d(zn[:self.xdim])
-        u = jnp.atleast_1d(zn[-self.udim:])
-
-        ll = self.policy.logpdf(up, u)
-        ll += self.dynamics.logpdf(x, u, xn)
         return ll

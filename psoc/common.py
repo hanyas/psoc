@@ -8,7 +8,7 @@ from jax import lax as jl
 
 from flax.training.train_state import TrainState
 
-from psoc.abstract import OpenLoop, FeedbackLoop
+from psoc.abstract import FeedbackLoop
 from psoc.algorithms import smc_with_score
 from psoc.algorithms import rao_blackwell_csmc_with_score
 
@@ -16,7 +16,7 @@ from psoc.algorithms import rao_blackwell_csmc_with_score
 def log_complete_likelihood(
     state: jnp.ndarray,
     next_state: jnp.ndarray,
-    transition_model: Union[OpenLoop, FeedbackLoop],
+    transition_model: FeedbackLoop,
     log_observation: Callable,
 ):
     ll = transition_model.logpdf(state, next_state) \
