@@ -15,9 +15,9 @@ from psoc.abstract import FeedbackLoop
 from psoc.bijector import Tanh
 
 from psoc.common import rollout
-from psoc.sampling import smc_sampling
 from psoc.utils import create_train_state
-from psoc.optimization import score_optimization
+from psoc.sampling import smc_sampling
+from psoc.optimization import batched_markovian_score_optimization
 
 from psoc.environments.feedback import const_linear_env as linear
 
@@ -41,7 +41,7 @@ def identity(x):
     return x
 
 
-proposal = Network(
+network = Network(
     dim=1,
     layer_size=[64, 64],
     transform=identity,
@@ -65,7 +65,7 @@ def make_env(
     )
 
     policy = FeedbackPolicyWithSquashing(
-        proposal, bijector, parameters
+        network, bijector, parameters
     )
 
     loop_obj = FeedbackLoop(
@@ -80,19 +80,19 @@ key = jr.PRNGKey(1)
 
 nb_steps = 51
 nb_particles = 16
-nb_samples = 16
+nb_samples = 5
 
 init_state = jnp.array([1.0, 2.0, 0.0])
 tempering = 0.1
 
-nb_iter = 500
+nb_iter = 100
 learning_rate = 1e-2
 batch_size = 64
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
-    module=proposal,
+    module=network,
     init_data=jnp.zeros((2,)),
     learning_rate=learning_rate
 )
@@ -102,7 +102,7 @@ reference = smc_sampling(
     sub_key,
     nb_steps,
     int(10 * nb_particles),
-    1,
+    int(10 * nb_particles),
     init_state,
     opt_state.params,
     tempering,
@@ -110,7 +110,7 @@ reference = smc_sampling(
 )[0]
 
 key, sub_key = jr.split(key, 2)
-opt_state = score_optimization(
+opt_state, _ = batched_markovian_score_optimization(
     sub_key,
     nb_iter,
     nb_steps,
@@ -121,18 +121,20 @@ opt_state = score_optimization(
     opt_state,
     tempering,
     batch_size,
-    make_env
+    make_env,
+    True
 )
 
 key, sub_key = jr.split(key, 2)
-sample = rollout(
+sample, _ = rollout(
     sub_key,
     nb_steps,
+    1,
     init_state,
     opt_state.params,
     tempering,
     make_env
 )
 
-plt.plot(sample)
+plt.plot(sample[0, ...])
 plt.show()

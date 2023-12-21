@@ -1,5 +1,4 @@
-from typing import Dict, Union
-from typing import Callable
+from typing import Callable, Dict, Union
 
 import jax
 from jax import random as jr
@@ -40,73 +39,6 @@ def _backward_tracing(
     return reference
 
 
-def _rao_blackwell_backward_sampling(
-    key: jax.Array,
-    nb_samples: int,
-    filter_particles: jnp.ndarray,
-    filter_weights: jnp.ndarray,
-    transition_model: Union[OpenLoop, FeedbackLoop],
-    loss_fn: Callable,
-    score_fn: Callable,
-    loss_fn_params: Dict,
-):
-    nb_steps = filter_particles.shape[0] - 1
-    nb_particles = filter_particles.shape[1]
-
-    # if x_t has shape (N,) and x_t_p_1 has shape (M,), then
-    # trans_logpdf(x_t, x_t_p_1) has shape (M, N)
-    trans_logpdf = jax.vmap(
-        jax.vmap(transition_model.logpdf, in_axes=(0, None)),
-        in_axes=(None, 0)
-    ) # (nb_samples, nb_partilces)
-
-    # Same here
-    loss_fn_ = jax.vmap(loss_fn, in_axes=(0, 0, None))  # (nb_samples, nb_partilces)
-    score_fn_ = jax.vmap(score_fn, in_axes=(0, 0, None))  # (nb_samples, nb_partilces)
-
-    # last time step
-    key, sub_key = jr.split(key, 2)
-    last_bs = jr.choice(sub_key, a=nb_particles, p=filter_weights[-1], shape=(nb_samples,))
-    # The first value of last_bs is our actual reference trajectory, the rest is used for R-B.
-    # We select [0] when talking about the reference.
-
-    def body(carry, args):
-        next_refs, loss_val, score_val = carry
-        keys, particles, weights = args
-
-        log_pdf_weights = trans_logpdf(particles, next_refs)  # noqa, shape is (nb_samples, nb_particles)
-        log_mod_weights = log_pdf_weights + jnp.log(weights)[None, :]  # weights correspond to particles
-        log_mod_weights_norm = logsumexp(log_mod_weights, axis=1, keepdims=True)  # Normalizer per reference
-        mod_weights = jnp.exp(log_mod_weights - log_mod_weights_norm)
-
-        choice_fn = lambda k, p: jr.choice(k, a=nb_particles, p=p)
-        bs = jax.vmap(choice_fn, in_axes=(0, 0))(keys, mod_weights)
-        refs = particles[bs]
-
-        loss_val += jnp.mean(loss_fn_(refs, next_refs, loss_fn_params))
-        scores = score_fn_(refs, next_refs, loss_fn_params)  # shape is (nb_samples, ...)
-        score_val = jax.tree_map(lambda a, b: a + jnp.mean(b, 0), score_val, scores)
-
-        return (refs, loss_val, score_val), next_refs[0]
-
-    key, sub_key = jr.split(key, 2)
-    res_keys = jr.split(sub_key, (nb_steps, nb_samples))
-
-    init_loss = 0.0
-    init_score = jax.tree_map(lambda a: jnp.zeros_like(a), loss_fn_params)
-
-    (first_refs, final_loss, final_score), reference = \
-        jl.scan(
-            body,
-            (filter_particles[-1, last_bs], init_loss, init_score),
-            (res_keys, filter_particles[:-1], filter_weights[:-1]),
-            reverse=True
-        )
-
-    reference = jnp.vstack((first_refs[0], reference))
-    return reference, final_loss, final_score
-
-
 def _backward_sampling(
     key: jax.Array,
     filter_particles: jnp.ndarray,
@@ -144,6 +76,125 @@ def _backward_sampling(
 
     reference = jnp.vstack((first_ref, reference))
     return reference
+
+
+def _rao_blackwell_backward_sampling(
+    key: jax.Array,
+    nb_samples: int,
+    filter_particles: jnp.ndarray,
+    filter_weights: jnp.ndarray,
+    transition_model: Union[OpenLoop, FeedbackLoop],
+):
+    nb_steps = filter_particles.shape[0] - 1
+    nb_particles = filter_particles.shape[1]
+
+    # if x_t has shape (N,) and x_t_p_1 has shape (M,), then
+    # trans_logpdf(x_t, x_t_p_1) has shape (M, N)
+    trans_logpdf = jax.vmap(
+        jax.vmap(transition_model.logpdf, in_axes=(0, None)),
+        in_axes=(None, 0)
+    )  # (nb_samples, nb_partilces)
+
+    # last time step
+    key, sub_key = jr.split(key, 2)
+    last_bs = jr.choice(sub_key, a=nb_particles, p=filter_weights[-1], shape=(nb_samples,))
+
+    def body(carry, args):
+        next_refs = carry
+        keys, particles, weights = args
+
+        log_pdf_weights = trans_logpdf(particles, next_refs)  # (nb_samples, nb_particles)
+        log_mod_weights = log_pdf_weights + jnp.log(weights)[None, :]
+        log_mod_weights_norm = logsumexp(log_mod_weights, axis=1, keepdims=True)
+        mod_weights = jnp.exp(log_mod_weights - log_mod_weights_norm)
+
+        choice_fn = lambda k, p: jr.choice(k, a=nb_particles, p=p)
+        bs = jax.vmap(choice_fn, in_axes=(0, 0))(keys, mod_weights)
+        refs = particles[bs]
+
+        return refs, (next_refs, next_refs[0])
+
+    key, sub_key = jr.split(key, 2)
+    res_keys = jr.split(sub_key, (nb_steps, nb_samples))
+
+    first_refs, (samples, reference) = \
+        jl.scan(
+            body,
+            filter_particles[-1, last_bs],
+            (res_keys, filter_particles[:-1], filter_weights[:-1]),
+            reverse=True
+        )
+
+    samples = jnp.insert(samples, 0, first_refs, 0)
+    reference = jnp.vstack((first_refs[0], reference))
+    return samples, reference
+
+
+def _rao_blackwell_backward_sampling_with_score(
+    key: jax.Array,
+    nb_samples: int,
+    filter_particles: jnp.ndarray,
+    filter_weights: jnp.ndarray,
+    transition_model: Union[OpenLoop, FeedbackLoop],
+    loss_fn: Callable,
+    score_fn: Callable,
+    loss_fn_params: Dict,
+):
+    nb_steps = filter_particles.shape[0] - 1
+    nb_particles = filter_particles.shape[1]
+
+    # if x_t has shape (N,) and x_t_p_1 has shape (M,), then
+    # trans_logpdf(x_t, x_t_p_1) has shape (M, N)
+    trans_logpdf = jax.vmap(
+        jax.vmap(transition_model.logpdf, in_axes=(0, None)),
+        in_axes=(None, 0)
+    ) # (nb_samples, nb_partilces)
+
+    # Same here
+    loss_fn_ = jax.vmap(loss_fn, in_axes=(0, 0, None))  # (nb_samples, nb_partilces)
+    score_fn_ = jax.vmap(score_fn, in_axes=(0, 0, None))  # (nb_samples, nb_partilces)
+
+    # last time step
+    key, sub_key = jr.split(key, 2)
+    last_bs = jr.choice(sub_key, a=nb_particles, p=filter_weights[-1], shape=(nb_samples,))
+    # The first value of last_bs is our actual reference trajectory, the rest is used for R-B.
+    # We select [0] when talking about the reference.
+
+    def body(carry, args):
+        next_refs, loss_val, score_val = carry
+        keys, particles, weights = args
+
+        log_pdf_weights = trans_logpdf(particles, next_refs)  # (nb_samples, nb_particles)
+        log_mod_weights = log_pdf_weights + jnp.log(weights)[None, :]  # weights correspond to particles
+        log_mod_weights_norm = logsumexp(log_mod_weights, axis=1, keepdims=True)  # Normalizer per reference
+        mod_weights = jnp.exp(log_mod_weights - log_mod_weights_norm)
+
+        choice_fn = lambda k, p: jr.choice(k, a=nb_particles, p=p)
+        bs = jax.vmap(choice_fn, in_axes=(0, 0))(keys, mod_weights)
+        refs = particles[bs]
+
+        loss_val += jnp.mean(loss_fn_(refs, next_refs, loss_fn_params))
+        scores = score_fn_(refs, next_refs, loss_fn_params)  # (nb_samples, ...)
+        score_val = jax.tree_map(lambda a, b: a + jnp.mean(b, 0), score_val, scores)
+
+        return (refs, loss_val, score_val), next_refs[0]
+
+    key, sub_key = jr.split(key, 2)
+    res_keys = jr.split(sub_key, (nb_steps, nb_samples))
+
+    init_loss = 0.0
+    init_score = jax.tree_map(lambda a: jnp.zeros_like(a), loss_fn_params)
+
+    (first_refs, final_loss, final_score), reference = \
+        jl.scan(
+            body,
+            (filter_particles[-1, last_bs], init_loss, init_score),
+            (res_keys, filter_particles[:-1], filter_weights[:-1]),
+            reverse=True
+        )
+
+    reference = jnp.vstack((first_refs[0], reference))
+    return reference, final_loss, final_score
 
 
 def _abstract_csmc(
@@ -212,7 +263,7 @@ def _abstract_csmc(
     )
 
 
-def vanilla_csmc(
+def csmc(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
@@ -243,6 +294,43 @@ def rao_blackwell_csmc(
     prior: distrax.Distribution,
     transition_model: Union[OpenLoop, FeedbackLoop],
     log_observation: Callable,
+):
+    def _backward_sampling_fn(
+        key,
+        filter_particles,
+        filter_weights,
+        transition_model,
+    ):
+        return _rao_blackwell_backward_sampling(
+            key,
+            nb_samples,
+            filter_particles,
+            filter_weights,
+            transition_model,
+        )
+
+    key, sub_key = jr.split(key, 2)
+    return _abstract_csmc(
+        sub_key,
+        nb_steps,
+        nb_particles,
+        reference,
+        prior,
+        transition_model,
+        log_observation,
+        _backward_sampling_fn
+    )
+
+
+def rao_blackwell_csmc_with_score(
+    key: jax.Array,
+    nb_steps: int,
+    nb_particles: int,
+    nb_samples: int,
+    reference: jnp.ndarray,
+    prior: distrax.Distribution,
+    transition_model: Union[OpenLoop, FeedbackLoop],
+    log_observation: Callable,
     loss_fn: Callable,
     score_fn: Callable,
     loss_fn_params: Dict,
@@ -253,7 +341,7 @@ def rao_blackwell_csmc(
         filter_weights,
         transition_model,
     ):
-        return _rao_blackwell_backward_sampling(
+        return _rao_blackwell_backward_sampling_with_score(
             key,
             nb_samples,
             filter_particles,

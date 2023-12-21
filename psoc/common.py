@@ -1,15 +1,16 @@
-from typing import Callable, Dict, Union, Any
+from typing import Callable, Dict, Union
 from functools import partial
 
 import jax
 from jax import numpy as jnp
-from jax import lax as jl
 from jax import random as jr
+from jax import lax as jl
 
 from flax.training.train_state import TrainState
 
 from psoc.abstract import OpenLoop, FeedbackLoop
-from psoc.algorithms import rao_blackwell_csmc
+from psoc.algorithms import smc_with_score
+from psoc.algorithms import rao_blackwell_csmc_with_score
 
 
 def log_complete_likelihood(
@@ -35,9 +36,9 @@ def maximization(
     vmap_ll = jax.vmap(log_complete_likelihood, in_axes=(0, 0, None, None))
 
     def loss_fn(params):
-        _, loop, reward_fn = \
+        _, loop_obj, reward_fn = \
             make_env(init_state, params, tempering)
-        lls = vmap_ll(states, next_states, loop, reward_fn)
+        lls = vmap_ll(states, next_states, loop_obj, reward_fn)
         return - 1.0 * jnp.mean(lls)
 
     grad_fn = jax.value_and_grad(loss_fn)
@@ -46,6 +47,47 @@ def maximization(
 
 
 def compute_score(
+    key: jax.Array,
+    nb_steps: int,
+    nb_particles: int,
+    nb_samples: int,
+    init_state: jnp.ndarray,
+    parameters: Dict,
+    tempering: float,
+    make_env: Callable,
+):
+    def loss_fn(
+        state: jnp.ndarray,
+        next_state: jnp.ndarray,
+        _parameters: Dict,
+    ):
+        _, loop, reward_fn = make_env(init_state, _parameters, tempering)
+        loss = log_complete_likelihood(state, next_state, loop, reward_fn)
+        return - 1.0 * loss
+
+    loss_fn_ = lambda x, xn, p: loss_fn(x, xn, p)
+    score_fn_ = lambda x, xn, p: jax.grad(loss_fn, 2)(x, xn, p)
+
+    prior_dist, loop_obj, reward_fn = \
+        make_env(init_state, parameters, tempering)
+
+    key, sub_key = jr.split(key, 2)
+    samples, loss, score = smc_with_score(
+        sub_key,
+        nb_steps,
+        nb_particles,
+        nb_samples,
+        prior_dist,
+        loop_obj,
+        reward_fn,
+        loss_fn_,
+        score_fn_,
+        parameters
+    )
+    return samples, loss, score
+
+
+def compute_markovian_score(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
@@ -68,17 +110,18 @@ def compute_score(
     loss_fn_ = lambda x, xn, p: loss_fn(x, xn, p)
     score_fn_ = lambda x, xn, p: jax.grad(loss_fn, 2)(x, xn, p)
 
-    prior, loop, reward_fn = make_env(init_state, parameters, tempering)
+    prior_dist, loop_obj, reward_fn = \
+        make_env(init_state, parameters, tempering)
 
     key, sub_key = jr.split(key, 2)
-    reference, loss, score = rao_blackwell_csmc(
+    reference, loss, score = rao_blackwell_csmc_with_score(
         sub_key,
         nb_steps,
         nb_particles,
         nb_samples,
         reference,
-        prior,
-        loop,
+        prior_dist,
+        loop_obj,
         reward_fn,
         loss_fn_,
         score_fn_,
@@ -99,26 +142,33 @@ def compute_cost(
     return - jnp.mean(jnp.sum(reward_fn(samples), axis=0))
 
 
-@partial(jax.jit, static_argnums=(1, -1))
+@partial(jax.jit, static_argnums=(1, 2, -1))
 def rollout(
     key: jax.Array,
     nb_steps: int,
+    nb_samples: int,
     init_state: jnp.ndarray,
     parameters: Dict,
     tempering: float,
     make_env: Callable,
 ):
-    prior, loop, _ = \
+    prior_dist, loop_obj, reward_fn = \
         make_env(init_state, parameters, tempering)
 
     def body(carry, args):
-        key, prev_state = carry
+        key, prev_states = carry
         key, sub_key = jr.split(key, 2)
-        next_state = loop.forward(sub_key, prev_state)
-        return (key, next_state), next_state
+        next_states = loop_obj.forward(sub_key, prev_states)
+        return (key, next_states), next_states
 
-    _, states = \
-        jl.scan(body, (key, init_state), (), length=nb_steps - 1)
+    key, sub_key = jr.split(key, 2)
+    init_states = prior_dist.sample(seed=sub_key, sample_shape=(nb_samples,))
 
-    states = jnp.vstack((init_state, states))
-    return states
+    key, sub_key = jr.split(key, 2)
+    _, samples = \
+        jl.scan(body, (sub_key, init_states), (), length=nb_steps - 1)
+
+    samples = jnp.insert(samples, 0, init_states, 0)
+    samples = jnp.swapaxes(samples, 0, 1)
+    rewards = jnp.mean(jnp.sum(reward_fn(samples), axis=1))
+    return samples, rewards

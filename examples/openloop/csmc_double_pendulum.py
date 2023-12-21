@@ -18,7 +18,7 @@ from psoc.bijector import Tanh, Sigmoid
 from psoc.common import rollout
 from psoc.utils import create_train_state
 from psoc.utils import positivity_constraint
-from psoc.optimization import rao_blackwell_score_optimization
+from psoc.optimization import rao_blackwell_markovian_score_optimization
 
 from psoc.environments.openloop import double_pendulum_env as double_pendulum
 
@@ -38,27 +38,18 @@ dynamics = StochasticDynamics(
 )
 
 # stoachstic policy proposal
-proposal = GaussMarkov(
+gauss_markov = GaussMarkov(
     dim=2,
     step=0.05,
     inv_length_init=nn.initializers.constant(100.0),
     diffusion_init=nn.initializers.constant(200.0)
 )
 
-# proposal = Gaussian(
-#     dim=2,
-# )
-
 # policy bijector
 bijector = distrax.Chain([
     distrax.ScalarAffine(0.0, 25.0),
-    Tanh()
+    # Tanh()
 ])
-
-# bijector = distrax.Chain([
-#     distrax.ScalarAffine(-25.0, 50.0),
-#     Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
-# ])
 
 
 def make_env(
@@ -71,8 +62,8 @@ def make_env(
         scale_diag=jnp.ones((6,)) * 1e-4
     )
 
-    policy = OpenloopPolicyWithSquashing(
-        proposal, bijector, parameters, positivity_constraint
+    policy = OpenloopPolicyWithClipping(
+        gauss_markov, bijector, parameters, positivity_constraint
     )
 
     loop_obj = OpenLoop(
@@ -100,7 +91,7 @@ learning_rate = 5e-1
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
-    module=proposal,
+    module=gauss_markov,
     init_data=jnp.zeros((2,)),
     learning_rate=learning_rate,
     optimizer=optax.sgd
@@ -124,7 +115,7 @@ for t in range(nb_steps):
 
     key, sub_key = jr.split(key, 2)
     opt_state, sample, _ = \
-        rao_blackwell_score_optimization(
+        rao_blackwell_markovian_score_optimization(
             sub_key,
             nb_iter,
             horizon,
@@ -148,7 +139,4 @@ for t in range(nb_steps):
     print(state[:2])
 
 plt.plot(trajectory[:, :-2])
-plt.show()
-
-plt.plot(trajectory[:, -2:])
 plt.show()

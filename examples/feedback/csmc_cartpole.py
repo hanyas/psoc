@@ -12,12 +12,12 @@ from psoc.abstract import StochasticDynamics
 from psoc.abstract import Network
 from psoc.abstract import FeedbackPolicyWithSquashing
 from psoc.abstract import FeedbackLoop
-from psoc.bijector import Tanh, Sigmoid
+from psoc.bijector import Tanh
 
 from psoc.common import rollout
-from psoc.sampling import smc_sampling
 from psoc.utils import create_train_state
-from psoc.optimization import score_optimization
+from psoc.sampling import smc_sampling
+from psoc.optimization import batched_markovian_score_optimization
 
 from psoc.environments.feedback import cartpole_env as cartpole
 
@@ -42,21 +42,16 @@ def polar(x):
     return jnp.hstack([x[0], sin_q, cos_q, x[2], x[3]])
 
 
-proposal = Network(
+network = Network(
     dim=1,
     layer_size=[256, 256],
     transform=polar,
     activation=nn.relu,
 )
 
-# bijector = distrax.Chain([
-#     distrax.ScalarAffine(0.0, 50.0),
-#     Tanh()
-# ])
-
 bijector = distrax.Chain([
-    distrax.ScalarAffine(-50.0, 100.0),
-    Sigmoid(), distrax.ScalarAffine(0.0, 1.5),
+    distrax.ScalarAffine(0.0, 50.0),
+    Tanh()
 ])
 
 
@@ -71,7 +66,7 @@ def make_env(
     )
 
     policy = FeedbackPolicyWithSquashing(
-        proposal, bijector, parameters
+        network, bijector, parameters
     )
 
     loop_obj = FeedbackLoop(
@@ -85,20 +80,20 @@ def make_env(
 key = jr.PRNGKey(1)
 
 nb_steps = 101
-nb_particles = 64
-nb_samples = 20
+nb_particles = 128
+nb_samples = 5
 
 init_state = jnp.zeros((5,))
-tempering = 0.25
+tempering = 1e-1
 
 nb_iter = 100
-learning_rate = 1e-3
+learning_rate = 5e-4
 batch_size = 32
 
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
-    module=proposal,
+    module=network,
     init_data=jnp.zeros((4,)),
     learning_rate=learning_rate
 )
@@ -108,7 +103,7 @@ reference = smc_sampling(
     sub_key,
     nb_steps,
     int(10 * nb_particles),
-    1,
+    int(10 * nb_particles),
     init_state,
     opt_state.params,
     tempering,
@@ -116,7 +111,7 @@ reference = smc_sampling(
 )[0]
 
 key, sub_key = jr.split(key, 2)
-opt_state = score_optimization(
+opt_state, _ = batched_markovian_score_optimization(
     sub_key,
     nb_iter,
     nb_steps,
@@ -127,18 +122,20 @@ opt_state = score_optimization(
     opt_state,
     tempering,
     batch_size,
-    make_env
+    make_env,
+    True,
 )
 
 key, sub_key = jr.split(key, 2)
-sample = rollout(
+sample, _ = rollout(
     sub_key,
     nb_steps,
+    1,
     init_state,
     opt_state.params,
     tempering,
     make_env,
 )
 
-plt.plot(sample[:, :-1])
+plt.plot(sample[0, :, :-1])
 plt.show()

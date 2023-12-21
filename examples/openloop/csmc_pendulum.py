@@ -17,8 +17,8 @@ from psoc.bijector import Tanh
 from psoc.common import rollout
 from psoc.utils import create_train_state
 from psoc.utils import positivity_constraint
-from psoc.optimization import rao_blackwell_score_optimization
 
+from psoc.optimization import rao_blackwell_markovian_score_optimization
 from psoc.environments.openloop import pendulum_env as pendulum
 
 import matplotlib.pyplot as plt
@@ -36,7 +36,7 @@ dynamics = StochasticDynamics(
 )
 
 # stoachstic policy proposal
-proposal = GaussMarkov(
+gauss_markov = GaussMarkov(
     dim=1,
     step=0.05,
     inv_length_init=nn.initializers.constant(25.0),
@@ -61,7 +61,7 @@ def make_env(
     )
 
     policy = OpenloopPolicyWithSquashing(
-        proposal, bijector, parameters, positivity_constraint
+        gauss_markov, bijector, parameters, positivity_constraint
     )
 
     loop_obj = OpenLoop(dynamics, policy)
@@ -87,7 +87,7 @@ learning_rate = 1e-1
 key, sub_key = jr.split(key, 2)
 opt_state = create_train_state(
     key=sub_key,
-    module=proposal,
+    module=gauss_markov,
     init_data=jnp.zeros((1,)),
     learning_rate=learning_rate,
     optimizer=optax.sgd
@@ -111,7 +111,7 @@ for t in range(nb_steps):
 
     key, sub_key = jr.split(key, 2)
     opt_state, sample, _ = \
-        rao_blackwell_score_optimization(
+        rao_blackwell_markovian_score_optimization(
             sub_key,
             nb_iter,
             horizon,

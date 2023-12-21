@@ -14,22 +14,20 @@ class Network(nn.Module):
     layer_size: Sequence[int]
     transform: Callable
     activation: Callable
-    log_std_init: Callable = nn.initializers.ones
+    init_log_std: Callable = nn.initializers.ones
+    init_kernel: Callable = nn.initializers.he_uniform()
 
     @nn.compact
     def __call__(self, x):
         y = self.transform(x)
         for _layer_size in self.layer_size:
             y = self.activation(
-                nn.Dense(
-                    _layer_size,
-                    kernel_init=nn.initializers.he_uniform(),
-                )(y)
+                nn.Dense(_layer_size, self.init_kernel)(y)
             )
         u = nn.Dense(self.dim)(y)
 
         log_std = \
-            self.param('log_std', self.log_std_init, self.dim)
+            self.param('log_std', self.init_log_std, self.dim)
 
         return u
 
@@ -71,26 +69,26 @@ class FeedbackPolicyWithSquashing(NamedTuple):
 
 class Gaussian(nn.Module):
     dim: int
-    loc_init: Callable = nn.initializers.zeros
-    scale_init: Callable = nn.initializers.ones
+    init_loc: Callable = nn.initializers.zeros
+    init_scale: Callable = nn.initializers.ones
 
     @nn.compact
     def __call__(self, u):
-        loc = self.param('loc', self.loc_init, self.dim)
-        scale = self.param('scale', self.scale_init, self.dim)
+        loc = self.param('loc', self.init_loc, self.dim)
+        scale = self.param('scale', self.init_scale, self.dim)
         return jnp.broadcast_to(loc, u.shape), jnp.broadcast_to(scale, u.shape)
 
 
 class TimeVariantGaussian(nn.Module):
     dim: int
     nb_steps: int
-    loc_init: Callable = nn.initializers.zeros
-    scale_init: Callable = nn.initializers.ones
+    init_loc: Callable = nn.initializers.zeros
+    init_scale: Callable = nn.initializers.ones
 
     @nn.compact
     def __call__(self, u, k):
-        loc = self.param('loc', self.loc_init, (self.nb_steps, self.dim))
-        scale = self.param('scale', self.scale_init, (self.nb_steps, self.dim))
+        loc = self.param('loc', self.init_loc, (self.nb_steps, self.dim))
+        scale = self.param('scale', self.init_scale, (self.nb_steps, self.dim))
         return jnp.broadcast_to(loc[k, :], u.shape), \
             jnp.broadcast_to(scale[k, :], u.shape)
 
@@ -98,13 +96,13 @@ class TimeVariantGaussian(nn.Module):
 class GaussMarkov(nn.Module):
     dim: int
     step: int
-    inv_length_init: Callable = nn.initializers.ones
-    diffusion_init: Callable = nn.initializers.ones
+    inti_inv_length: Callable = nn.initializers.ones
+    init_diffusion: Callable = nn.initializers.ones
 
     @nn.compact
     def __call__(self, u):
-        inv_length = self.param('inv_length', self.inv_length_init, self.dim)
-        diffusion = self.param('diffusion', self.diffusion_init, self.dim)
+        inv_length = self.param('inv_length', self.inti_inv_length, self.dim)
+        diffusion = self.param('diffusion', self.init_diffusion, self.dim)
 
         sigma_sqr = diffusion / (2.0 * inv_length) \
                     * (1.0 - jnp.exp(-2.0 * inv_length * self.step))
@@ -220,9 +218,11 @@ class StochasticDynamics(NamedTuple):
         dx = ode(x, u)
         return x + step * dx
 
-    def mean(self, x, u):
-        return self.euler(x, u, self.ode, self.step)
-        # return self.runge_kutta(x, u, self.ode, self.step)
+    def mean(self, x, u, method="euler"):
+        if method == "euler":
+            return self.euler(x, u, self.ode, self.step)
+        else:
+            return self.runge_kutta(x, u, self.ode, self.step)
 
     def distribution(self, x, u):
         return distrax.MultivariateNormalDiag(
@@ -270,12 +270,13 @@ class FeedbackLoop(NamedTuple):
         return jnp.column_stack((xn, un))
 
     def forward(self, key, z):
-        x = jnp.atleast_1d(z[:self.xdim])
-        u = jnp.atleast_1d(z[-self.udim:])
+        x = jnp.atleast_1d(z[..., :self.xdim])
+        u = jnp.atleast_1d(z[..., -self.udim:])
 
         xn = self.dynamics.sample(key, x, u)
+        # xn = self.dynamics.mean(x, u)
         un = self.policy.mean(xn)
-        return jnp.hstack((xn, un))
+        return jnp.column_stack((xn, un))
 
     def logpdf(self, z, zn):
         x = jnp.atleast_1d(z[:self.xdim])

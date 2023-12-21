@@ -5,8 +5,6 @@ import jax
 from jax import numpy as jnp
 from jax import random as jr
 
-import numpy as onp
-
 from flax import linen as nn
 from flax.training.train_state import TrainState
 
@@ -31,7 +29,6 @@ def batcher(
 ):
     states, next_states = create_pairs(samples)
     batch_idx = jr.permutation(key, len(states))
-    batch_idx = onp.asarray(batch_idx)
 
     if skip_last:
         # Skip incomplete batch
@@ -41,7 +38,7 @@ def batcher(
     else:
         # include incomplete batch
         steps_per_epoch = math.ceil(len(states) / batch_size)
-        batch_idx = onp.array_split(batch_idx, steps_per_epoch)
+        batch_idx = jnp.array_split(batch_idx, steps_per_epoch)
 
     for idx in batch_idx:
         yield states[idx], next_states[idx]

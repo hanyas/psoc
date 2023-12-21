@@ -30,9 +30,7 @@ dynamics = StochasticDynamics(
 )
 
 # stoachstic policy proposal
-proposal = Gaussian(
-    dim=2,
-)
+gauss = Gaussian(dim=2)
 
 # policy bijector
 bijector = distrax.Chain([
@@ -51,7 +49,7 @@ def make_env(
     )
 
     policy = OpenloopPolicyWithClipping(
-        proposal, bijector, parameters
+        gauss, bijector, parameters
     )
 
     loop_obj = OpenLoop(dynamics, policy)
@@ -71,7 +69,7 @@ init_state = jnp.zeros((6,))
 tempering = 5e-3
 
 key, sub_key = jr.split(key, 2)
-parameters = proposal.init(
+parameters = gauss.init(
     sub_key, jnp.zeros((2,))
 )["params"]
 
