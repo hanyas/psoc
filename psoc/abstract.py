@@ -6,30 +6,31 @@ from jax import numpy as jnp
 import distrax
 from flax import linen as nn
 
-from psoc.utils import constrain
-
 
 class Network(nn.Module):
     dim: int
     layer_size: Sequence[int]
     transform: Callable
     activation: Callable
-    init_log_std: jnp.ndarray
+    init_log_std: Callable = nn.initializers.ones
+    init_kernel: Callable = nn.initializers.he_uniform()
 
     @nn.compact
     def __call__(self, x):
         y = self.transform(x)
         for _layer_size in self.layer_size:
-            y = self.activation(nn.Dense(_layer_size)(y))
+            y = self.activation(
+                nn.Dense(_layer_size, self.init_kernel)(y)
+            )
         u = nn.Dense(self.dim)(y)
 
         log_std = \
-            self.param('log_std', lambda rng, shape: self.init_log_std, 1)
+            self.param('log_std', self.init_log_std, self.dim)
 
         return u
 
 
-class FeedbackPolicy(NamedTuple):
+class FeedbackPolicyWithSquashing(NamedTuple):
     module: Network
     bijector: distrax.Chain
     params: Dict
@@ -66,74 +67,21 @@ class FeedbackPolicy(NamedTuple):
 
 class Gaussian(nn.Module):
     dim: int
-    init_params: jnp.ndarray
+    init_loc: Callable = nn.initializers.zeros
+    init_scale: Callable = nn.initializers.ones
 
     @nn.compact
     def __call__(self, u):
-        loc = self.param('loc', lambda rng, shape: self.init_params['loc'], 1)
-        scale = self.param('scale', lambda rng, shape: self.init_params['scale'], 1)
+        loc = self.param('loc', self.init_loc, self.dim)
+        scale = self.param('scale', self.init_scale, self.dim)
         return jnp.broadcast_to(loc, u.shape), jnp.broadcast_to(scale, u.shape)
-
-
-class GaussMarkov(nn.Module):
-    dim: int
-    step: int
-    init_params: jnp.ndarray
-
-    @nn.compact
-    def __call__(self, u):
-        l = self.param('l', lambda rng, shape: self.init_params['l'], 1)
-        q = self.param('q', lambda rng, shape: self.init_params['q'], 1)
-
-        sigma_sqr = q / (2.0 * l) * (1.0 - jnp.exp(-2.0 * l * self.step))
-
-        loc = jnp.exp(- l * self.step) * u
-        scale = jnp.sqrt(sigma_sqr)
-        return loc, scale
-
-
-class OpenloopPolicy(NamedTuple):
-    module: Union[Gaussian, GaussMarkov]
-    bijector: distrax.Chain
-    params: Dict
-
-    @property
-    def dim(self):
-        return self.module.dim
-
-    def mean(self, u):
-        _params = constrain(self.params)
-        un, _ = self.module.apply({'params': _params}, u)
-        return self.bijector.forward(un)
-
-    def distribution(self, u):
-        _params = constrain(self.params)
-        loc, scale = self.module.apply({'params': _params}, u)
-
-        raw_dist = distrax.MultivariateNormalDiag(
-            loc=loc, scale_diag=jnp.atleast_1d(scale)
-        )
-
-        squashed_dist = distrax.Transformed(
-            distribution=raw_dist,
-            bijector=distrax.Block(self.bijector, ndims=1)
-        )
-        return squashed_dist
-
-    def sample(self, key, u):
-        dist = self.distribution(u)
-        return dist.sample(seed=key)
-
-    def logpdf(self, u, un):
-        dist = self.distribution(u)
-        return dist.log_prob(un)
 
 
 class StochasticDynamics(NamedTuple):
     dim: int
     ode: Callable
     step: float
-    log_std: jnp.ndarray
+    stddev: jnp.ndarray
 
     @staticmethod
     def runge_kutta(
@@ -153,14 +101,16 @@ class StochasticDynamics(NamedTuple):
         dx = ode(x, u)
         return x + step * dx
 
-    def mean(self, x, u):
-        return self.euler(x, u, self.ode, self.step)
-        # return self.runge_kutta(x, u, self.ode, self.step)
+    def mean(self, x, u, method="euler"):
+        if method == "euler":
+            return self.euler(x, u, self.ode, self.step)
+        else:
+            return self.runge_kutta(x, u, self.ode, self.step)
 
     def distribution(self, x, u):
         return distrax.MultivariateNormalDiag(
             loc=self.mean(x, u),
-            scale_diag=jnp.exp(self.log_std)
+            scale_diag=self.stddev
         )
 
     def sample(self, key, x, u):
@@ -174,7 +124,7 @@ class StochasticDynamics(NamedTuple):
 
 class FeedbackLoop(NamedTuple):
     dynamics: StochasticDynamics
-    policy: FeedbackPolicy
+    policy: FeedbackPolicyWithSquashing
 
     @property
     def xdim(self):
@@ -203,12 +153,13 @@ class FeedbackLoop(NamedTuple):
         return jnp.column_stack((xn, un))
 
     def forward(self, key, z):
-        x = jnp.atleast_1d(z[:self.xdim])
-        u = jnp.atleast_1d(z[-self.udim:])
+        x = jnp.atleast_1d(z[..., :self.xdim])
+        u = jnp.atleast_1d(z[..., -self.udim:])
 
         xn = self.dynamics.sample(key, x, u)
+        # xn = self.dynamics.mean(x, u)
         un = self.policy.mean(xn)
-        return jnp.hstack((xn, un))
+        return jnp.column_stack((xn, un))
 
     def logpdf(self, z, zn):
         x = jnp.atleast_1d(z[:self.xdim])
@@ -219,54 +170,4 @@ class FeedbackLoop(NamedTuple):
 
         ll = self.dynamics.logpdf(x, u, xn)
         ll += self.policy.logpdf(xn, un)
-        return ll
-
-
-class OpenLoop(NamedTuple):
-    dynamics: StochasticDynamics
-    policy: OpenloopPolicy
-
-    @property
-    def xdim(self):
-        return self.dynamics.dim
-
-    @property
-    def udim(self):
-        return self.policy.dim
-
-    def mean(self, z):
-        x = jnp.atleast_1d(z[:self.xdim])
-        up = jnp.atleast_1d(z[-self.udim:])
-
-        u = self.policy.mean(up)
-        xn = self.dynamics.mean(x, u)
-        return jnp.hstack((xn, u))
-
-    def sample(self, key, z):
-        u_key, x_key = jr.split(key, 2)
-
-        x = jnp.atleast_1d(z[..., :self.xdim])
-        up = jnp.atleast_1d(z[..., -self.udim:])
-
-        u = self.policy.sample(u_key, up)
-        xn = self.dynamics.sample(x_key, x, u)
-        return jnp.column_stack((xn, u))
-
-    def forward(self, key, z):
-        x = jnp.atleast_1d(z[:self.xdim])
-        up = jnp.atleast_1d(z[-self.udim:])
-
-        u = self.policy.mean(up)
-        xn = self.dynamics.sample(key, x, u)
-        return jnp.hstack((xn, u))
-
-    def logpdf(self, z, zn):
-        x = jnp.atleast_1d(z[:self.xdim])
-        up = jnp.atleast_1d(z[-self.udim:])
-
-        xn = jnp.atleast_1d(zn[:self.xdim])
-        u = jnp.atleast_1d(zn[-self.udim:])
-
-        ll = self.policy.logpdf(up, u)
-        ll += self.dynamics.logpdf(x, u, xn)
         return ll

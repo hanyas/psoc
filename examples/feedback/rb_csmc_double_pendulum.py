@@ -19,7 +19,7 @@ from psoc.utils import create_train_state
 from psoc.sampling import smc_sampling
 from psoc.optimization import batched_rao_blackwell_markovian_score_optimization
 
-from psoc.environments.feedback import cartpole_env as cartpole
+from psoc.environments.feedback import double_pendulum_env as double_pendulum
 
 import matplotlib.pyplot as plt
 
@@ -30,7 +30,7 @@ jax.config.update("jax_enable_x64", True)
 
 dynamics = StochasticDynamics(
     dim=4,
-    ode=cartpole.ode,
+    ode=double_pendulum.ode,
     step=0.05,
     stddev=1e-2 * jnp.ones((4,))
 )
@@ -38,19 +38,21 @@ dynamics = StochasticDynamics(
 
 @partial(jnp.vectorize, signature='(k)->(h)')
 def polar(x):
-    sin_q, cos_q = jnp.sin(x[1]), jnp.cos(x[1])
-    return jnp.hstack([x[0], sin_q, cos_q, x[2], x[3]])
+    sin_q, cos_q = jnp.sin(x[0]), jnp.cos(x[0])
+    sin_p, cos_p = jnp.sin(x[1]), jnp.cos(x[1])
+    return jnp.hstack([sin_q, cos_q, sin_p, cos_p, x[2], x[3]])
 
 
 network = Network(
-    dim=1,
+    dim=2,
     layer_size=[256, 256],
     transform=polar,
     activation=nn.relu,
+    init_log_std=nn.initializers.constant(1.5)
 )
 
 bijector = distrax.Chain([
-    distrax.ScalarAffine(0.0, 50.0),
+    distrax.ScalarAffine(0.0, 25.0),
     Tanh()
 ])
 
@@ -62,7 +64,7 @@ def make_env(
 ):
     prior_dist = distrax.MultivariateNormalDiag(
         loc=init_state,
-        scale_diag=jnp.ones((5,)) * 1e-4
+        scale_diag=jnp.ones((6,)) * 1e-4
     )
 
     policy = FeedbackPolicyWithSquashing(
@@ -73,21 +75,21 @@ def make_env(
         dynamics, policy
     )
 
-    reward_fn = lambda z: cartpole.reward(z, tempering)
+    reward_fn = lambda z: double_pendulum.reward(z, tempering)
     return prior_dist, loop_obj, reward_fn
 
 
 key = jr.PRNGKey(1)
 
 nb_steps = 101
-nb_particles = 256
+nb_particles = 512
 nb_samples = 32
 
-init_state = jnp.zeros((5,))
-tempering = 0.1
+init_state = jnp.zeros((6,))
+tempering = 5e-3
 
-nb_iter = 100
-learning_rate = 1e-3
+nb_iter = 300
+learning_rate = 5e-4
 batch_size = 64
 
 key, sub_key = jr.split(key, 2)
@@ -137,5 +139,5 @@ sample, _ = rollout(
     make_env,
 )
 
-plt.plot(sample[0, :, :-1])
+plt.plot(sample[0, :, :-2])
 plt.show()
