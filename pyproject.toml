@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "psoc"
+version = "0.0.1"
+authors = [
+    {name = "Hany Abdulsamad", email = "hany@robot-learning.de"},
+    {name = "Sahel Iqbal", email = "sahel13miqbal@proton.me"},
+    {name = "Adrien Corenflos", email = ""}
+]
+dependencies = [
+    "typing_extensions",
+    "numpy",
+    "scipy",
+    "chex",
+    "jax",
+    "jaxlib",
+    "jaxopt",
+    "optax",
+    "flax",
+    "brax",
+    "distrax"
+    "matplotlib",
+]
+
+[tool.setuptools]
+packages = ["psoc"]
+
+[project.optional-dependencies]
+test = ["pytest"]
