@@ -78,7 +78,7 @@ def _backward_sampling(
     return reference
 
 
-def _rao_blackwell_backward_sampling(
+def _rao_blackwellized_backward_sampling(
     key: jax.Array,
     nb_samples: int,
     filter_particles: jnp.ndarray,
@@ -130,7 +130,7 @@ def _rao_blackwell_backward_sampling(
     return samples, reference
 
 
-def _rao_blackwell_backward_sampling_with_score(
+def _rao_blackwellized_backward_sampling_with_score(
     key: jax.Array,
     nb_samples: int,
     filter_particles: jnp.ndarray,
@@ -301,7 +301,7 @@ def rao_blackwell_csmc(
         filter_weights,
         transition_model,
     ):
-        return _rao_blackwell_backward_sampling(
+        return _rao_blackwellized_backward_sampling(
             key,
             nb_samples,
             filter_particles,
@@ -322,7 +322,7 @@ def rao_blackwell_csmc(
     )
 
 
-def rao_blackwell_csmc_with_score(
+def rao_blackwellized_csmc_with_score(
     key: jax.Array,
     nb_steps: int,
     nb_particles: int,
@@ -341,7 +341,7 @@ def rao_blackwell_csmc_with_score(
         filter_weights,
         transition_model,
     ):
-        return _rao_blackwell_backward_sampling_with_score(
+        return _rao_blackwellized_backward_sampling_with_score(
             key,
             nb_samples,
             filter_particles,

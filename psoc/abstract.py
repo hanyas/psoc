@@ -19,14 +19,10 @@ class Network(nn.Module):
     def __call__(self, x):
         y = self.transform(x)
         for _layer_size in self.layer_size:
-            y = self.activation(
-                nn.Dense(_layer_size, self.init_kernel)(y)
-            )
+            y = self.activation(nn.Dense(_layer_size, self.init_kernel)(y))
         u = nn.Dense(self.dim)(y)
 
-        log_std = \
-            self.param('log_std', self.init_log_std, self.dim)
-
+        log_std = self.param('log_std', self.init_log_std, self.dim)
         return u
 
 

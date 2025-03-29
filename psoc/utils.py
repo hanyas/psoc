@@ -51,12 +51,10 @@ def create_train_state(
     learning_rate: float,
     optimizer: Callable = optax.adam
 ):
-    params = module.init(key, init_data)["params"]
-    tx = optimizer(learning_rate)
     return TrainState.create(
         apply_fn=module.apply,
-        params=params,
-        tx=tx
+        params=module.init(key, init_data)["params"],
+        tx=optimizer(learning_rate)
     )
 
 

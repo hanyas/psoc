@@ -10,7 +10,7 @@ from flax.training.train_state import TrainState
 
 from psoc.abstract import FeedbackLoop
 from psoc.algorithms import smc_with_score
-from psoc.algorithms import rao_blackwell_csmc_with_score
+from psoc.algorithms import rao_blackwellized_csmc_with_score
 
 
 def log_complete_likelihood(
@@ -114,7 +114,7 @@ def compute_markovian_score(
         make_env(init_state, parameters, tempering)
 
     key, sub_key = jr.split(key, 2)
-    reference, loss, score = rao_blackwell_csmc_with_score(
+    reference, loss, score = rao_blackwellized_csmc_with_score(
         sub_key,
         nb_steps,
         nb_particles,
