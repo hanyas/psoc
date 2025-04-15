@@ -3,7 +3,7 @@ from typing import Callable, NamedTuple
 from jax import Array
 from distrax import Distribution
 
-from psoc.core import TransitionModel, RewardFn
+from psoc.core import TransitionPrior, RewardFn
 
 
 class MDPEnv(NamedTuple):
@@ -12,6 +12,6 @@ class MDPEnv(NamedTuple):
     action_dim: int
     num_time_steps: int
     prior_dist: Distribution
-    trans_model: TransitionModel
+    trans_model: TransitionPrior
     reward_fn: RewardFn
     feature_fn: Callable

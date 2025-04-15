@@ -11,7 +11,7 @@ from psoc.core import (
     Parameters,
     SMCParticles,
     SMCState,
-    TransitionModel,
+    TransitionPrior,
     Policy,
     RewardFn,
 )
@@ -20,7 +20,7 @@ from psoc.envs.core import MDPEnv
 
 def propagate(
     rng_key: PRNGKey,
-    model: TransitionModel,
+    model: TransitionPrior,
     state: Array,
     action: Array,
 ) -> Array:

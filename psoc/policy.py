@@ -18,7 +18,7 @@ from psoc.core import (
     Parameters,
     SMCParticles,
     Policy,
-    Proposal,
+    TransitionPosterior,
 )
 
 
@@ -275,7 +275,7 @@ class NeuralGaussTransition(nn.Module):
 
 def create_neural_gauss_transition(
     network: NeuralGaussTransition,
-) -> Proposal:
+) -> TransitionPosterior:
     """
     Creates a squashed neural policy that conforms to the Policy interface.
 
@@ -352,7 +352,7 @@ def create_neural_gauss_transition(
         )
         return train_state
 
-    return Proposal(
+    return TransitionPosterior(
         dim=network.dim,
         sample=sample,
         log_prob=log_prob,
@@ -364,7 +364,7 @@ def create_neural_gauss_transition(
 
 @partial(jax.jit, static_argnames="transition")
 def train_neural_gauss_transition_stepwise(
-    transition: Proposal,
+    transition: TransitionPosterior,
     train_state: TrainState,
     next_states: Array,
     states: Array,

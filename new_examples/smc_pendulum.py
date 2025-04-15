@@ -81,8 +81,8 @@ for i in range(1, num_epochs + 1):
             num_particles=num_particles,
             init_prior=env.prior_dist,
             trans_prior=env.trans_model,
-            policy=policy,
-            params=train_state.params,
+            policy_prior=policy,
+            policy_prior_params=train_state.params,
             reward_fn=env.reward_fn,
             slew_rate_penalty=slew_rate_penalty,
             tempering=tempering
@@ -111,15 +111,6 @@ for i in range(1, num_epochs + 1):
         )
         loss += batch_loss
 
-    # loss = 0.0
-    # key, sub_key = random.split(key)
-    # batch_indices = batch_data(sub_key, num_particles, batch_size)
-    # for batch_idx in batch_indices:
-    #     particle_batch = jax.tree.map(lambda x: x[:, batch_idx], traced_particles)
-    #     train_state, batch_loss = \
-    #         train_gauss_policy_pathwise(policy, train_state, particle_batch)
-    #     loss += batch_loss
-
     entropy = policy.entropy(train_state.params)
     end_time = time.time()
     time_diff = end_time - start_time
@@ -131,59 +122,6 @@ for i in range(1, num_epochs + 1):
         f"Entropy: {entropy:.3f}, "
         f"Time per epoch: {time_diff:.3f}s"
     )
-
-# eval_state = deepcopy(train_state)
-# eval_state.params["log_std"] = -20.0 * jnp.ones((env.action_dim,))
-#
-# # plot realization
-# states = []
-# actions = []
-# observations = []
-#
-# key = random.PRNGKey(21)
-# key, state_key, obs_key = random.split(key, 3)
-#
-# state = jnp.array([0.0, 0.0])
-# obs = env.obs_model.sample(obs_key, state)
-# carry = policy.reset(1)
-#
-# states.append(state)
-# observations.append(obs)
-#
-# for _ in range(env.num_time_steps):
-#     key, state_key, obs_key, action_key = random.split(key, 4)
-#
-#     carry, action = policy.sample(action_key, carry, obs, train_state.params)
-#     state = env.trans_model.sample(state_key, state, action[0])
-#     obs = env.obs_model.sample(obs_key, state)
-#
-#     states.append(state)
-#     actions.append(action[0])
-#     observations.append(obs)
-#
-# # Convert lists to arrays for plotting
-# states = jnp.squeeze(jnp.array(states))
-# actions = jnp.squeeze(jnp.array(actions))
-# observations = jnp.squeeze(jnp.array(observations))
-#
-# # Plot the results
-# fig, axs = plt.subplots(3, 1, figsize=(10, 8))
-# fig.suptitle("Simulated trajectories")
-#
-# axs[0].plot(states[:, 0])
-# axs[0].set_ylabel("Angle")
-# axs[0].grid(True)
-#
-# axs[1].plot(states[:, 1])
-# axs[1].set_ylabel("Angular Velocity")
-# axs[1].grid(True)
-#
-# axs[2].plot(actions)
-# axs[2].set_ylabel("Action")
-# axs[2].grid(True)
-#
-# plt.tight_layout()
-# plt.show()
 
 
 key, sub_key = random.split(key)

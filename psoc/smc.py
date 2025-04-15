@@ -11,9 +11,9 @@ from psoc.core import (
     Parameters,
     SMCState,
     SMCParticles,
-    TransitionModel,
+    TransitionPrior,
     Policy,
-    Proposal,
+    TransitionPosterior,
     RewardFn,
 )
 from psoc.new_utils import (
@@ -29,8 +29,8 @@ def smc_init(
     rng_key: PRNGKey,
     num_particles: int,
     init_prior: Distribution,
-    policy: Policy,
-    params: Parameters,
+    policy_prior: Policy,
+    policy_prior_params: Parameters,
     reward_fn: RewardFn,
     slew_rate_penalty: float,
     tempering: float,
@@ -40,7 +40,7 @@ def smc_init(
     states = init_prior.sample(
         seed=sub_key, sample_shape=(num_particles,)
     )
-    actions = jnp.zeros((num_particles, policy.dim))
+    actions = jnp.zeros((num_particles, policy_prior.dim))
 
     particles = SMCParticles(states, actions)
     return SMCState(
@@ -55,9 +55,9 @@ def smc_init(
 def smc_step(
     rng_key: PRNGKey,
     smc_state: SMCState,
-    trans_prior: TransitionModel,
-    policy: Policy,
-    params: Parameters,
+    trans_prior: TransitionPrior,
+    policy_prior: Policy,
+    policy_prior_params: Parameters,
     reward_fn: RewardFn,
     slew_rate_penalty: float,
     tempering: float,
@@ -72,7 +72,7 @@ def smc_step(
     resampling_indices = smc_state.resampling_indices
 
     key, action_key = random.split(key, 2)
-    actions, _ = policy.sample(action_key, particles.states, params)
+    actions, _ = policy_prior.sample(action_key, particles.states, policy_prior_params)
 
     key, propagate_keys = custom_split(key, num_particles + 1)
     states = jax.vmap(propagate, in_axes=(0, None, 0, 0))(
@@ -108,7 +108,7 @@ def smc_step(
         "num_particles",
         "init_prior",
         "trans_prior",
-        "policy",
+        "policy_prior",
         "reward_fn",
         "resample_fn",
     )
@@ -118,9 +118,9 @@ def smc(
     num_time_steps: int,
     num_particles: int,
     init_prior: Distribution,
-    trans_prior: TransitionModel,
-    policy: Policy,
-    params: Parameters,
+    trans_prior: TransitionPrior,
+    policy_prior: Policy,
+    policy_prior_params: Parameters,
     reward_fn: RewardFn,
     slew_rate_penalty: float,
     tempering: float,
@@ -134,8 +134,8 @@ def smc(
                 rng_key=key,
                 smc_state=smc_state,
                 trans_prior=trans_prior,
-                policy=policy,
-                params=params,
+                policy_prior=policy_prior,
+                policy_prior_params=policy_prior_params,
                 reward_fn=reward_fn,
                 slew_rate_penalty=slew_rate_penalty,
                 tempering=tempering,
@@ -151,8 +151,8 @@ def smc(
             rng_key=init_key,
             num_particles=num_particles,
             init_prior=init_prior,
-            policy=policy,
-            params=params,
+            policy_prior=policy_prior,
+            policy_prior_params=policy_prior_params,
             reward_fn=reward_fn,
             slew_rate_penalty=slew_rate_penalty,
             tempering=tempering,
@@ -231,8 +231,8 @@ def reg_smc_init(
     rng_key: PRNGKey,
     num_particles: int,
     init_prior: Distribution,
-    policy_proposal: Policy,
-    policy_proposal_params: Parameters,
+    policy_posterior: Policy,
+    policy_posterior_params: Parameters,
     reward_fn: RewardFn,
     slew_rate_penalty: float,
     tempering: float,
@@ -242,7 +242,7 @@ def reg_smc_init(
     states = init_prior.sample(
         seed=sub_key, sample_shape=(num_particles,)
     )
-    actions = jnp.zeros((num_particles, policy_proposal.dim))
+    actions = jnp.zeros((num_particles, policy_posterior.dim))
 
     particles = SMCParticles(
         states=states, actions=actions,
@@ -259,13 +259,13 @@ def reg_smc_init(
 def reg_smc_step(
     rng_key: PRNGKey,
     smc_state: SMCState,
-    trans_prior: TransitionModel,
-    trans_proposal: Proposal,
-    trans_proposal_params: Parameters,
+    trans_prior: TransitionPrior,
+    trans_posterior: TransitionPosterior,
+    trans_posterior_params: Parameters,
     policy_prior: Policy,
     policy_prior_params: Parameters,
-    policy_proposal: Policy,
-    policy_proposal_params: Parameters,
+    policy_posterior: Policy,
+    policy_posterior_params: Parameters,
     reward_fn: RewardFn,
     slew_rate_penalty: float,
     tempering: float,
@@ -285,8 +285,8 @@ def reg_smc_step(
     actions, action_prior_log_prob, _ = policy_prior.sample_and_log_prob(
         action_key, particles.states, policy_prior_params
     )
-    action_prop_log_prob = policy_proposal.log_prob(
-        actions, particles.states, policy_proposal_params,
+    action_prop_log_prob = policy_posterior.log_prob(
+        actions, particles.states, policy_posterior_params,
     )
 
     # sample states from transition prior
@@ -296,7 +296,7 @@ def reg_smc_step(
     states_prior_log_prob = \
         jax.vmap(trans_prior.log_prob)(states, particles.states, actions)
     states_prop_log_prob = \
-        trans_proposal.log_prob(states, particles.states, actions, trans_proposal_params)
+        trans_posterior.log_prob(states, particles.states, actions, trans_posterior_params)
 
     log_potentials, rewards = jax.vmap(
         log_potential, in_axes=(0, 0, 0, None, None, None)
@@ -332,9 +332,9 @@ def reg_smc_step(
         "num_particles",
         "init_prior",
         "trans_prior",
-        "trans_proposal",
+        "trans_posterior",
         "policy_prior",
-        "policy_proposal",
+        "policy_posterior",
         "reward_fn",
         "resample_fn",
     )
@@ -344,13 +344,13 @@ def regularized_smc(
     num_time_steps: int,
     num_particles: int,
     init_prior: Distribution,
-    trans_prior: TransitionModel,
-    trans_proposal: Proposal,
-    trans_proposal_params: Parameters,
+    trans_prior: TransitionPrior,
+    trans_posterior: TransitionPosterior,
+    trans_posterior_params: Parameters,
     policy_prior: Policy,
     policy_prior_params: Parameters,
-    policy_proposal: Policy,
-    policy_proposal_params: Parameters,
+    policy_posterior: Policy,
+    policy_posterior_params: Parameters,
     reward_fn: RewardFn,
     slew_rate_penalty: float,
     tempering: float,
@@ -365,12 +365,12 @@ def regularized_smc(
                 rng_key=key,
                 smc_state=smc_state,
                 trans_prior=trans_prior,
-                trans_proposal=trans_proposal,
-                trans_proposal_params=trans_proposal_params,
+                trans_posterior=trans_posterior,
+                trans_posterior_params=trans_posterior_params,
                 policy_prior=policy_prior,
                 policy_prior_params=policy_prior_params,
-                policy_proposal=policy_proposal,
-                policy_proposal_params=policy_proposal_params,
+                policy_posterior=policy_posterior,
+                policy_posterior_params=policy_posterior_params,
                 reward_fn=reward_fn,
                 slew_rate_penalty=slew_rate_penalty,
                 tempering=tempering,
@@ -387,8 +387,8 @@ def regularized_smc(
             rng_key=init_key,
             num_particles=num_particles,
             init_prior=init_prior,
-            policy_proposal=policy_proposal,
-            policy_proposal_params=policy_proposal_params,
+            policy_posterior=policy_posterior,
+            policy_posterior_params=policy_posterior_params,
             reward_fn=reward_fn,
             slew_rate_penalty=slew_rate_penalty,
             tempering=tempering,

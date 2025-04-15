@@ -62,23 +62,23 @@ policy_prior_state = policy_prior.init(
     state_dim=env.state_dim,
     action_dim=env.action_dim,
     batch_dim=num_particles,
-    learning_rate=1e-4
+    learning_rate=3e-4
 )
 
 ###
-policy_proposal_network = NeuralGaussPolicy(
+policy_posterior_network = NeuralGaussPolicy(
     feature_fn=env.feature_fn,
     hidden_size=(256, 256),
     action_dim=env.action_dim,
     init_log_std=constant(jnp.log(2.0)),
 )
-policy_proposal = create_neural_gauss_policy(
-    network=policy_proposal_network,
+policy_posterior = create_neural_gauss_policy(
+    network=policy_posterior_network,
     bijector=policy_bijector
 )
 
 key, sub_key = random.split(key, 2)
-policy_proposal_state = policy_proposal.init(
+policy_posterior_state = policy_posterior.init(
     rng_key=sub_key,
     state_dim=env.state_dim,
     action_dim=env.action_dim,
@@ -92,17 +92,17 @@ trans_network = NeuralGaussTransition(
     state_dim=env.state_dim,
     init_log_std=constant(jnp.log(1.0)),
 )
-trans_proposal = create_neural_gauss_transition(
+trans_posterior = create_neural_gauss_transition(
     network=trans_network
 )
 
 key, sub_key = random.split(key, 2)
-trans_state = trans_proposal.init(
+trans_state = trans_posterior.init(
     rng_key=sub_key,
     state_dim=env.state_dim,
     action_dim=env.action_dim,
     batch_dim=num_particles,
-    learning_rate=3e-4
+    learning_rate=learning_rate
 )
 
 
@@ -126,8 +126,8 @@ for i in range(1, num_epochs + 1):
     expected_reward, *_ = policy_evaluation(
         rng_key=sub_key,
         env_obj=env,
-        policy=policy_proposal,
-        params=policy_proposal_state.params,
+        policy=policy_posterior,
+        params=policy_posterior_state.params,
         num_samples=1024
     )
 
@@ -140,12 +140,12 @@ for i in range(1, num_epochs + 1):
             num_particles=num_particles,
             init_prior=env.prior_dist,
             trans_prior=env.trans_model,
-            trans_proposal=trans_proposal,
-            trans_proposal_params=trans_state.params,
+            trans_posterior=trans_posterior,
+            trans_posterior_params=trans_state.params,
             policy_prior=policy_prior,
             policy_prior_params=policy_prior_state.params,
-            policy_proposal=policy_proposal,
-            policy_proposal_params=policy_proposal_state.params,
+            policy_posterior=policy_posterior,
+            policy_posterior_params=policy_posterior_state.params,
             reward_fn=env.reward_fn,
             slew_rate_penalty=slew_rate_penalty,
             tempering=tempering,
@@ -179,15 +179,15 @@ for i in range(1, num_epochs + 1):
             states=state_batch,
             damping=(1. - damping)
         )
-        policy_proposal_state, _policy_loss = train_neural_gauss_policy_stepwise(
-            policy=policy_proposal,
-            train_state=policy_proposal_state,
+        policy_posterior_state, _policy_loss = train_neural_gauss_policy_stepwise(
+            policy=policy_posterior,
+            train_state=policy_posterior_state,
             actions=action_batch,
             states=state_batch,
             damping=damping
         )
         trans_state, _trans_loss = train_neural_gauss_transition_stepwise(
-            transition=trans_proposal,
+            transition=trans_posterior,
             train_state=trans_state,
             next_states=next_state_batch,
             states=state_batch,
@@ -198,7 +198,7 @@ for i in range(1, num_epochs + 1):
         policy_loss += _policy_loss
         trans_loss += _trans_loss
 
-    entropy = policy_proposal.entropy(policy_proposal_state.params)
+    entropy = policy_posterior.entropy(policy_posterior_state.params)
     end_time = time.time()
     time_diff = end_time - start_time
 
@@ -219,8 +219,8 @@ expected_reward, states, actions = \
     policy_evaluation(
         rng_key=sub_key,
         env_obj=env,
-        policy=policy_proposal,
-        params=policy_proposal_state.params,
+        policy=policy_posterior,
+        params=policy_posterior_state.params,
         num_samples=16
     )
 

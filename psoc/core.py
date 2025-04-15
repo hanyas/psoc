@@ -42,21 +42,21 @@ class RewardFn(Protocol):
         r"""The  reward function $r(s_t, a_t)$."""
 
 
-class SampleTransition(Protocol):
+class SampleTransitionPrior(Protocol):
     def __call__(self, rng_key: PRNGKey, s: Array, a: Array) -> Array:
         r"""Sample from $f(s_t \mid s_{t-1}, a_{t-1})$."""
 
 
-class LogProbTransition(Protocol):
+class LogProbTransitionPrior(Protocol):
     def __call__(self, sn: Array, s: Array, a: Array) -> Array:
         r"""Compute the log density of $f(s_t \mid s_{t-1}, a_{t-1})$."""
 
 
-class TransitionModel(NamedTuple):
+class TransitionPrior(NamedTuple):
     r"""The transition kernel $f(s_t \mid s_{t-1}, a_{t-1})$."""
 
-    sample: SampleTransition
-    log_prob: LogProbTransition
+    sample: SampleTransitionPrior
+    log_prob: LogProbTransitionPrior
 
 
 class SamplePolicy(Protocol):
@@ -130,7 +130,7 @@ class Policy(NamedTuple):
     init: InitializePolicy
 
 
-class SampleProposal(Protocol):
+class SampleTransitionPosterior(Protocol):
     def __call__(
         self,
         rng_key: PRNGKey,
@@ -141,7 +141,7 @@ class SampleProposal(Protocol):
         r"""Sample from $q(s_{t+1} \mid s_t, a_t)$."""
 
 
-class LogProbProposal(Protocol):
+class LogProbTransitionPosterior(Protocol):
     def __call__(
         self,
         next_states: Array,
@@ -152,7 +152,7 @@ class LogProbProposal(Protocol):
         r"""Compute the log density of $q(s_{t+1} \mid s_t, a_t)$."""
 
 
-class PathwiseLogProbProposal(Protocol):
+class PathwiseLogProbTransitionPosterior(Protocol):
     def __call__(
         self,
         particles: SMCParticles,
@@ -161,7 +161,7 @@ class PathwiseLogProbProposal(Protocol):
         r"""Compute the log density of $q(s_{t+1} \mid s_t, a_t)$."""
 
 
-class SampleAndLogProbProposal(Protocol):
+class SampleAndLogProbTransitionPosterior(Protocol):
     def __call__(
         self,
         rng_key: PRNGKey,
@@ -172,7 +172,7 @@ class SampleAndLogProbProposal(Protocol):
         r"""Sample from $q(s_{t+1} \mid s_t, a_t)$ and compute its log density."""
 
 
-class InitializeProposal(Protocol):
+class InitializeTransitionPosterior(Protocol):
     def __call__(
         self,
         rng_key: PRNGKey,
@@ -184,12 +184,12 @@ class InitializeProposal(Protocol):
         r"""Initialize the recurrent state of the policy."""
 
 
-class Proposal(NamedTuple):
-    r"""The proposal distribution $q(s_{t+1} \mid s_t, a_t)$."""
+class TransitionPosterior(NamedTuple):
+    r"""The posterior distribution $q(s_{t+1} \mid s_t, a_t)$."""
 
     dim: int
-    sample: SampleProposal
-    log_prob: LogProbProposal
-    pathwise_log_prob: PathwiseLogProbProposal
-    sample_and_log_prob: SampleAndLogProbProposal
-    init: InitializeProposal
+    sample: SampleTransitionPosterior
+    log_prob: LogProbTransitionPosterior
+    pathwise_log_prob: PathwiseLogProbTransitionPosterior
+    sample_and_log_prob: SampleAndLogProbTransitionPosterior
+    init: InitializeTransitionPosterior

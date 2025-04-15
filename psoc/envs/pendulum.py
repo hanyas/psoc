@@ -10,7 +10,7 @@ from distrax import (
     MultivariateNormalDiag
 )
 
-from psoc.core import PRNGKey, TransitionModel
+from psoc.core import PRNGKey, TransitionPrior
 from psoc.envs.core import MDPEnv
 
 
@@ -89,7 +89,7 @@ prior_dist = MultivariateNormalDiag(
     loc=jnp.zeros(state_dim),
     scale_diag=jnp.array([1e-2, 1e-1])
 )
-trans_model = TransitionModel(sample=sample_trans, log_prob=log_prob_trans)
+trans_model = TransitionPrior(sample=sample_trans, log_prob=log_prob_trans)
 
 
 @partial(jnp.vectorize, signature="(n)->(m)")
